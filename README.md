@@ -198,9 +198,6 @@ This project intentionally avoids:
 - forcing offensive routing during normal work
 - polluting context with huge governance blocks
 
-The goal is simple:
-
-> **Normal until explicitly armed.**
 
 ---
 
