@@ -68,40 +68,7 @@ tests/
 .github/
 ```
 
-## Week 1 Scope
-
-| Area | Status |
-|---|---|
-| Structured state | done |
-| Modular hooks | done |
-| Cross-platform installer | done |
-| Validation | done |
-| Basic tests | done |
-| Docs baseline | done |
-
-## Roadmap
-
-| Week | Focus |
-|---|---|
-| Week 1 | hook architecture, installer, docs, validation |
-| Week 2 | richer phase routing, better conflict checks |
-| Week 3 | stronger OPSEC gates, mode profiles |
-| Week 4 | release hardening, community feedback |
-
-## Known Limitations
-
-- This is a **control/profile layer**, not a full attack platform.
-- Real execution depth still depends on your MCP/tooling surface.
-- Hook behavior is intentionally lightweight to avoid context pollution.
-
-## Contributing
-
-See [CONTRIBUTING.md](CONTRIBUTING.md).
-
-
-## ⚠️ 免责声明 / Disclaimer
-
-**本项目仅供授权渗透测试（Authorized Penetration Testing）和安全研究使用。**
+渗透测试（Authorized Penetration Testing）和安全研究使用。**
 
 ### 重要声明
 - 本工具 **仅限** 在您拥有 **明确书面授权** 的目标系统或环境中使用。
