@@ -4,7 +4,6 @@ import json
 import re
 from typing import Any, Optional
 
-
 ENABLE_PATTERNS = [
     (r"/redteam\s+full\b", "redteam-full"),
     (r"/redteam\s+light\b", "redteam-light"),
@@ -69,15 +68,7 @@ def extract_prompt(payload: Any) -> str:
 
 
 SESSION_ID_KEYS = (
-    "session_id",
-    "sessionId",
-    "thread_id",
-    "threadId",
-    "conversation_id",
-    "conversationId",
-    "chat_id",
-    "chatId",
-    "id",
+    "session_id","sessionId","thread_id","threadId","conversation_id","conversationId","chat_id","chatId","id",
 )
 
 

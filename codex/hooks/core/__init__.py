@@ -9,3 +9,4 @@ from .prompt_parser import (
     parse_opsec_command,
 )
 from .state_manager import load_runtime_state, reset_runtime_state, save_runtime_state
+from .supplemental_prompts import build_prompt_chain_notice, build_prompt_overlay

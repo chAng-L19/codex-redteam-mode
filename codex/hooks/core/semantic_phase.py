@@ -6,72 +6,27 @@ from collections import Counter
 from functools import lru_cache
 from typing import Iterable
 
-
 PHASE_EXAMPLES: dict[str, list[str]] = {
-    "web": [
-        "trace one exploit path through requests parameters session state and hidden endpoints",
-        "analyze a web vulnerability chain with reproduction steps and request order",
-        "review this burp traffic and determine whether the issue is exploitable",
-        "梳理这个接口的鉴权 会话状态 隐藏参数和请求顺序 证明一条可利用链",
-        "分析网页登录 流量 边界检查 和漏洞复现路径",
-        "审查 burp 数据包 鉴权边界 API 行为和参数污染",
-    ],
-    "ad": [
-        "map trust edges sessions credential opportunities and the lowest-noise path through active directory",
-        "reason about kerberos delegation acl abuse and lateral movement in a windows domain",
-        "identify the next quiet step in an ad attack chain using sessions and permissions",
-        "分析域控环境中的委派 票据 会话和 ACL 路径",
-        "在 AD 中寻找最小噪声的凭证复用和横向链路",
-    ],
-    "postex": [
-        "triage a foothold for privilege escalation credential reuse and next-hop value",
-        "evaluate what to do after code execution on a host",
-        "reason about host enumeration privesc and post exploitation priorities",
-        "拿到 foothold 后判断提权 凭证收集和下一跳价值",
-        "后渗透阶段如何做主机分诊和推进",
-        "拿到 shell 之后先做什么 如何继续后渗透和主机分诊",
-    ],
-    "reverse": [
-        "recover the execution chain of a binary loader or malware sample",
-        "analyze unpacking configuration extraction process launch sequence and binary logic",
-        "reverse engineer the program to understand stages callbacks and operator tradecraft",
-        "分析样本执行链 释放逻辑 配置提取和子进程拉起",
-        "从逆向角度梳理二进制的控制流 载荷和行为链",
-        "程序启动后会释放文件并拉起子进程 帮我梳理执行链和行为逻辑",
-    ],
-    "code-audit": [
-        "trace one controllable input to a dangerous sink across handlers middleware and trust boundaries",
-        "review source code for auth permission logic hidden trust shortcuts and a precise proof path",
-        "analyze code structure to find an exploitable path from entrypoint to sink",
-        "从源码入口追到危险函数 检查鉴权 边界和信任假设",
-        "做代码审计 梳理 controller middleware 和 sink 之间的一条漏洞路径",
-        "帮我从入口一路追到危险函数 看看权限边界哪里失守",
-    ],
-    "payload": [
-        "choose payload shape launcher format staged versus stageless tradeoffs and delivery constraints",
-        "reason about shellcode loaders and the best payload format for the target",
-        "compare delivery formats and operator tradeoffs for an implant or launcher",
-        "选择载荷形态 staged 或 stageless 以及投递格式",
-        "比较 shellcode launcher 和 payload 方案的适配性",
-    ],
-    "evasion": [
-        "plan av edr waf or sandbox bypass techniques with low-noise tradeoffs",
-        "evaluate defender bypass options and operational constraints",
-        "reason about waf bypass header tricks request shaping and av evasion",
-        "分析免杀 绕过 对抗和低噪声规避路径",
-        "对比 WAF 绕过 AV EDR 规避和沙箱逃逸策略",
-    ],
+    "web": ["trace one exploit path through requests parameters session state and hidden endpoints", "review burp traffic and determine whether this web issue is exploitable", "analyze this login flow token reuse and authorization boundary", "梳理这个登录接口和鉴权边界，判断 token 是否可复用", "基于 burp 流量分析一条可验证的 web 利用路径"],
+    "ad": ["reason about kerberos delegation acl abuse and lateral movement in active directory", "identify the next quiet step in a windows domain attack chain", "分析域内委派、票据与 ACL 关系，找一条低噪声推进路径"],
+    "postex": ["triage a foothold for privilege escalation credential reuse and next-hop value", "evaluate what to do after code execution on a host", "已经拿到 shell，下一步应该如何做主机分诊、提权和横向准备"],
+    "reverse": ["recover the execution chain of a binary loader or malware sample", "analyze unpacking configuration extraction process launch sequence and binary logic", "这个程序会释放资源并拉起子进程，帮我梳理执行链"],
+    "code-audit": ["trace one controllable input to a dangerous sink across handlers middleware and trust boundaries", "review source code for auth permission logic hidden trust shortcuts and a precise proof path", "从入口一路追到危险函数，看看权限边界哪里失守"],
+    "payload": ["choose payload shape launcher format staged versus stageless tradeoffs and delivery constraints", "compare delivery formats and operator tradeoffs for an implant or launcher", "帮我在 staged 和 stageless 之间做取舍并说明约束条件"],
+    "evasion": ["plan av edr waf or sandbox bypass techniques with low-noise tradeoffs", "evaluate defender bypass options and operational constraints", "评估这个 WAF/403 场景下的最小验证绕过路径"],
+    "cloud": ["analyze aws iam role assumption privilege boundaries and metadata exposure", "review cloud identity paths and abuse opportunities in the control plane", "分析云 IAM 权限、元数据与凭证滥用路径"],
+    "container": ["reason about kubernetes pod escape hostpath abuse and cluster privilege boundaries", "review container breakout paths and namespace isolation issues", "分析容器逃逸和 kubernetes 集群权限边界"],
+    "network": ["assess request smuggling websocket or protocol parsing issues from packet traces", "reason about dns rebinding and protocol attack paths", "基于抓包和协议行为分析请求走私或协议攻击路径"],
+    "crypto": ["analyze rsa hash or symmetric cipher weaknesses and attack conditions", "review the challenge from a crypto attack perspective", "从密码学角度分析 RSA、哈希或对称加密的利用条件"],
+    "mobile": ["analyze an android apk or ios ipa for pinning bypass and mobile attack surface", "review a mobile application from frida objection and ssl pinning angles", "分析安卓或 iOS 应用的抓包、证书锁定与移动端攻击面"],
 }
 
-
 TOKEN_RE = re.compile(r"[a-z0-9_./-]+|[\u4e00-\u9fff]")
-
 
 def _normalize(text: str) -> str:
     text = text.casefold()
     text = re.sub(r"\s+", " ", text)
     return text.strip()
-
 
 def _char_ngrams(token: str, n: int = 3) -> Iterable[str]:
     if len(token) <= n:
@@ -79,7 +34,6 @@ def _char_ngrams(token: str, n: int = 3) -> Iterable[str]:
         return
     for i in range(len(token) - n + 1):
         yield token[i : i + n]
-
 
 def _tokenize(text: str) -> list[str]:
     normalized = _normalize(text)
@@ -93,10 +47,8 @@ def _tokenize(text: str) -> list[str]:
         tokens.extend(_char_ngrams(piece))
     return tokens
 
-
 def _vectorize(text: str) -> Counter[str]:
     return Counter(_tokenize(text))
-
 
 def _cosine(a: Counter[str], b: Counter[str]) -> float:
     if not a or not b:
@@ -108,11 +60,9 @@ def _cosine(a: Counter[str], b: Counter[str]) -> float:
         return 0.0
     return dot / (norm_a * norm_b)
 
-
 @lru_cache(maxsize=1)
 def _phase_prototypes() -> dict[str, Counter[str]]:
     return {phase: _vectorize(" ".join(examples)) for phase, examples in PHASE_EXAMPLES.items()}
-
 
 def classify_phase_semantically(prompt: str) -> tuple[str | None, float]:
     query = _vectorize(prompt)

@@ -8,7 +8,7 @@ HOOKS_DIR = Path(__file__).resolve().parent
 if str(HOOKS_DIR) not in sys.path:
     sys.path.insert(0, str(HOOKS_DIR))
 
-from core import emit_hook_json, extract_session_id, reset_runtime_state
+from core import build_prompt_chain_notice, emit_hook_json, extract_session_id, reset_runtime_state
 from core.prompt_parser import decode_stdin, load_payload
 
 
@@ -23,10 +23,13 @@ def main() -> None:
 
     reset_runtime_state(session_id=session_id)
     context = (
-        "[mode] Default session mode is normal. Red-team mode is disabled unless the user explicitly enables it "
-        "with phrases like 进入红队模式 or /redteam on. When enabled, runtime guidance stays lightweight and routes by "
-        "phase -> method -> router -> leaf."
+        "[mode] Default is normal. Red-team mode stays off until explicitly enabled. "
+        "When enabled, guidance stays lightweight and routes by phase -> router -> pack -> leaf. "
+        "Use method only when it adds value."
     )
+    notice = build_prompt_chain_notice(HOOKS_DIR.parent)
+    if notice:
+        context = f"{context}\n{notice}"
     print(emit_hook_json("SessionStart", context))
 
 

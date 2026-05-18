@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import json
 import os
@@ -20,6 +20,7 @@ class RedTeamState:
     subphase: str = ""
     method: str = ""
     router: str = ""
+    skill_pack: str = ""
     leaf_skill: str = ""
     evidence_level: str = "unknown"
     selected_path: str = ""
@@ -35,6 +36,7 @@ class RedTeamState:
             subphase=self.subphase or "",
             method=self.method or "",
             router=self.router or "",
+            skill_pack=self.skill_pack or "",
             leaf_skill=self.leaf_skill or "",
             evidence_level=self.evidence_level if self.evidence_level in VALID_EVIDENCE else "unknown",
             selected_path=self.selected_path or "",

@@ -1,14 +1,1 @@
-# Example only. Merge carefully into your real config.toml.
-
-# Codex red-team profile
-model_instructions_file = './instruction.ctf.md'
-
-[features]
-codex_hooks = true
-
-[mcp_servers.burp-ai-agent]
-command = 'C:\Path\To\BurpSuite\jre\bin\java.exe'
-args = ['-jar', 'C:\Path\To\mcp-proxy.jar', '--sse-url', 'http://127.0.0.1:9876']
-enabled = true
-startup_timeout_sec = 20
-tool_timeout_sec = 120
+# Codex red-team profile\nmodel_instructions_file = './instruction.ctf.md'\n\n[features]\nhooks = true\n
