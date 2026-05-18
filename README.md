@@ -1,6 +1,6 @@
 # Codex Red Team Opt-In Mode
 
-[English](./README.md)
+[English](./README.md)|[Chinese](./README_ZH.md)
 
 > Defaults to normal; only enters red-team mode when explicitly enabled.
 
