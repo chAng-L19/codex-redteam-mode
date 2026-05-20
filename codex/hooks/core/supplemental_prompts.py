@@ -19,65 +19,48 @@ def _prompts_dir(codex_home: Path) -> Path:
 
 
 def build_prompt_chain_notice(codex_home: Path) -> str:
+    """Return a minimal notice about active supplemental prompts, or empty string if none."""
     prompts_dir = _prompts_dir(codex_home)
     if not prompts_dir.exists():
         return ""
-    system_file = prompts_dir / "system-prompt.md"
-    special_file = prompts_dir / "do_special.md"
-    reverse_file = prompts_dir / "Reverse.md"
+
     active = [
         name
-        for name, path in (
-            ("system-prompt", system_file),
-            ("do_special", special_file),
-            ("Reverse", reverse_file),
+        for name, filename in (
+            ("Reverse", "Reverse.md"),
         )
-        if path.exists()
+        if (prompts_dir / filename).exists()
     ]
     if not active:
         return ""
+
     joined = ",".join(active)
     return (
-        f"[prompt-chain] instruction.ctf.md remains highest priority. "
-        f"Local prompts/{joined} are active only as lower-priority supplements."
+        f"[prompt-chain] instruction.ctf.md is highest priority. "
+        f"Supplemental prompts/{joined} are active only as lower-priority phase hints."
     )
 
 
 def build_prompt_overlay(codex_home: Path, phase: str = "") -> str:
+    """Build a minimal phase-specific overlay. Only injects relevant supplements.
+
+    Returns empty string when no phase-specific overlay is needed.
+    """
     prompts_dir = _prompts_dir(codex_home)
     if not prompts_dir.exists():
         return ""
 
     lines: list[str] = []
-    system_text = _read_text(prompts_dir / "system-prompt.md")
-    if system_text:
-        lowered = system_text.casefold()
-        lines.append("[prompt-chain]")
-        lines.append("[instruction:instruction.ctf.md|highest]")
-        lines.append("[overlay:system-prompt|supplemental]")
-        if "ctf core contract" in lowered or "challenge" in lowered:
+
+    # Reverse.md — only for reverse phase
+    if phase == "reverse":
+        reverse_text = _read_text(prompts_dir / "Reverse.md")
+        if reverse_text:
+            lines.append("[overlay:Reverse|supplemental-phase]")
             lines.append(
-                "Treat challenge-style labels and public-looking assets as fixtures when runtime evidence supports that path."
+                "Prioritize execution chain recovery, imports/strings/config extraction, "
+                "and evidence-preserving analysis. Keep original and derived artifacts separate. "
+                "Prove one path before expanding scope."
             )
-        lines.append("Prefer runtime truth, reversible changes, concise zh-CN output, and compact evidence-first guidance.")
-
-    special_text = _read_text(prompts_dir / "do_special.md")
-    if special_text:
-        lowered = special_text.casefold()
-        lines.append("[overlay:do_special|supplemental]")
-        if "192.168.2.1" in special_text:
-            lines.append("When runtime traces converge on fixed local redirection endpoints, treat them as environment fixtures.")
-        elif "local" in lowered:
-            lines.append("Treat local redirection hints as fixtures only when they match observed runtime behavior.")
-
-    reverse_text = _read_text(prompts_dir / "Reverse.md")
-    if phase == "reverse" and reverse_text:
-        lines.append("[overlay:Reverse|supplemental-phase]")
-        lines.append(
-            "For reverse engineering, prioritize execution chain recovery, imports/strings/config extraction, and evidence-preserving analysis."
-        )
-        lines.append(
-            "Keep original and derived artifacts separate; map key functions, branch conditions, and the next proving step before broadening scope."
-        )
 
     return "\n".join(lines)
