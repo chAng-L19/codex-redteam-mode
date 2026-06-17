@@ -1,4 +1,4 @@
----
+﻿---
 name: red-team-command-doctrine
 description: Compact governance skill for offensive phase selection, router selection, detailed pack selection, and OPSEC-aware progression.
 ---
