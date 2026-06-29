@@ -1,3 +1,8 @@
+---
+name: redteam-code-audit-detail-pack
+description: "Domain routing and boundary guidance for authorized source code security review, including dangerous function tracing, data-flow analysis, logic flaw detection, and dependency review. Use when a task belongs to the code audit domain and needs scope, evidence, pivot, or exit criteria."
+---
+
 # 代码审计
 
 ## Domain

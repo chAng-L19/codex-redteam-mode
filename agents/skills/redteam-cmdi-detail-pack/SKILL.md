@@ -1,3 +1,8 @@
+---
+name: redteam-cmdi-detail-pack
+description: "Domain routing and boundary guidance for authorized operating system command injection testing, including direct injection, blind injection, out-of-band callbacks, and argument injection. Use when a task belongs to the command injection domain and needs scope, evidence, pivot, or exit criteria."
+---
+
 # OS 命令注入测试
 
 ## Domain

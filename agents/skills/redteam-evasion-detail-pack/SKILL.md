@@ -1,3 +1,8 @@
+---
+name: redteam-evasion-detail-pack
+description: "Domain routing and boundary guidance for authorized defense evasion and bypass testing, including WAF bypass, AV/EDR evasion, logging considerations, and traffic obfuscation. Use when a task belongs to the evasion domain and needs scope, evidence, pivot, or exit criteria."
+---
+
 # 防御规避与绕过
 
 ## Domain

@@ -1,3 +1,8 @@
+---
+name: red-team-command-doctrine
+description: "Governance skill for red-team mode phase selection, router selection, detailed pack selection, OPSEC-aware progression, and choosing the next concrete skill. Use when red-team mode needs command-level decision support before technical testing."
+---
+
 # 红队指挥决策
 
 ## Domain

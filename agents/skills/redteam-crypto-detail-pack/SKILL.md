@@ -1,3 +1,8 @@
+---
+name: redteam-crypto-detail-pack
+description: "Domain routing and boundary guidance for authorized cryptography weakness testing, including weak algorithms, padding oracles, key management errors, insecure randomness, and hash collision risks. Use when a task belongs to the cryptography testing domain and needs scope, evidence, pivot, or exit criteria."
+---
+
 # 密码学弱点测试
 
 ## Domain

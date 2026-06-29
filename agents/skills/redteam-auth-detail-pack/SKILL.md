@@ -1,3 +1,8 @@
+---
+name: redteam-auth-detail-pack
+description: "Domain routing and boundary guidance for authorized authentication, authorization, and session security testing, including password policy, JWT/token, OAuth, and MFA bypass issues. Use when a task belongs to the auth testing domain and needs scope, evidence, pivot, or exit criteria."
+---
+
 # 认证与授权漏洞测试
 
 ## Domain

@@ -1,3 +1,8 @@
+---
+name: redteam-recon-detail-pack
+description: "Domain routing and boundary guidance for authorized reconnaissance and information gathering, including subdomain enumeration, port scanning, directory discovery, fingerprinting, and OSINT. Use when a task belongs to the recon domain and needs scope, evidence, pivot, or exit criteria."
+---
+
 # 信息收集与侦察
 
 ## Domain

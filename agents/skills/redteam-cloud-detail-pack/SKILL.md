@@ -1,3 +1,8 @@
+---
+name: redteam-cloud-detail-pack
+description: "Domain routing and boundary guidance for authorized cloud security testing, including IAM misconfiguration, exposed storage, metadata services, and serverless injection. Use when a task belongs to the cloud testing domain and needs scope, evidence, pivot, or exit criteria."
+---
+
 # 云安全测试
 
 ## Domain

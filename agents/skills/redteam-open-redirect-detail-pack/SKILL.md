@@ -1,3 +1,8 @@
+---
+name: redteam-open-redirect-detail-pack
+description: "Domain routing and boundary guidance for authorized open redirect testing, including parameter redirects, meta or JavaScript redirects, and OAuth redirect_uri abuse. Use when a task belongs to the open redirect domain and needs scope, evidence, pivot, or exit criteria."
+---
+
 # 开放重定向测试
 
 ## Domain

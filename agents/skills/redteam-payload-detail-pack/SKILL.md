@@ -1,3 +1,8 @@
+---
+name: redteam-payload-detail-pack
+description: "Domain routing and boundary guidance for authorized payload construction and weaponization analysis, including shellcode, file format payloads, phishing payloads, and staged or stageless payload choices. Use when a task belongs to the payload construction domain and needs scope, evidence, pivot, or exit criteria."
+---
+
 # Payload 构造与武器化
 
 ## Domain

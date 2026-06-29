@@ -1,3 +1,8 @@
+---
+name: redteam-cache-poison-detail-pack
+description: "Domain routing and boundary guidance for authorized web cache poisoning testing, including unkeyed headers, unkeyed parameters, cache deception, and CDN-specific behavior. Use when a task belongs to the cache poisoning domain and needs scope, evidence, pivot, or exit criteria."
+---
+
 # 缓存投毒测试
 
 ## Domain

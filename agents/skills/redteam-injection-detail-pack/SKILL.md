@@ -1,3 +1,8 @@
+---
+name: redteam-injection-detail-pack
+description: "Domain routing and boundary guidance for authorized general injection testing outside SQL injection, including NoSQL, LDAP, XPath, and expression language injection. Use when a task belongs to the general injection domain and needs scope, evidence, pivot, or exit criteria."
+---
+
 # 通用注入测试
 
 ## Domain

@@ -1,3 +1,8 @@
+---
+name: redteam-csrf-detail-pack
+description: "Domain routing and boundary guidance for authorized CSRF testing, including token bypasses, SameSite bypasses, and JSON CSRF. Use when a task belongs to the CSRF testing domain and needs scope, evidence, pivot, or exit criteria."
+---
+
 # CSRF 跨站请求伪造测试
 
 ## Domain

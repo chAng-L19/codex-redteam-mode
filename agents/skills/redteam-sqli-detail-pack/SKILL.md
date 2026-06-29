@@ -1,3 +1,8 @@
+---
+name: redteam-sqli-detail-pack
+description: "Domain routing and boundary guidance for authorized SQL injection testing, including union-based, blind, error-based, stacked query, and second-order SQL injection variants. Use when a task belongs to the SQL injection domain and needs scope, evidence, pivot, or exit criteria."
+---
+
 # SQL 注入测试
 
 ## Domain

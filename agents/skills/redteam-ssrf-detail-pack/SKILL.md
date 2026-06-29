@@ -1,3 +1,8 @@
+---
+name: redteam-ssrf-detail-pack
+description: "Domain routing and boundary guidance for authorized SSRF testing, including basic SSRF, blind SSRF, protocol smuggling, and cloud metadata access paths. Use when a task belongs to the SSRF domain and needs scope, evidence, pivot, or exit criteria."
+---
+
 # SSRF 服务端请求伪造测试
 
 ## Domain

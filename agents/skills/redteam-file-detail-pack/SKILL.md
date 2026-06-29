@@ -1,3 +1,8 @@
+---
+name: redteam-file-detail-pack
+description: "Domain routing and boundary guidance for authorized file operation vulnerability testing, including path traversal, arbitrary file read/write/upload, and LFI/RFI. Use when a task belongs to the file vulnerability domain and needs scope, evidence, pivot, or exit criteria."
+---
+
 # 文件上传/包含/读取漏洞测试
 
 ## Domain

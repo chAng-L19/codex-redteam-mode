@@ -1,3 +1,8 @@
+---
+name: redteam-ssti-detail-pack
+description: "Domain routing and boundary guidance for authorized server-side template injection testing, including Jinja2, Twig, Freemarker, Velocity, and Thymeleaf engines. Use when a task belongs to the SSTI domain and needs scope, evidence, pivot, or exit criteria."
+---
+
 # SSTI 服务端模板注入测试
 
 ## Domain

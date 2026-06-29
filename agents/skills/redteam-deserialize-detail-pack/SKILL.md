@@ -1,3 +1,8 @@
+---
+name: redteam-deserialize-detail-pack
+description: "Domain routing and boundary guidance for authorized insecure deserialization testing, including Java, PHP, Python, .NET, and gadget-chain analysis. Use when a task belongs to the deserialization testing domain and needs scope, evidence, pivot, or exit criteria."
+---
+
 # 反序列化漏洞测试
 
 ## Domain
