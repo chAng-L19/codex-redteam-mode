@@ -128,30 +128,60 @@ def _parse_bullet_list(section_body: str) -> list[str]:
 
 
 def _parse_exit_evidence(section_body: str) -> ExitGate:
-    """Parse Exit Evidence section into an ExitGate."""
+    """Parse Exit Evidence section into an ExitGate.
+
+    Uses a state machine: only bullet items under a 'Required artifacts:' header
+    (or at the top level before any sub-header) are treated as required_artifacts.
+    Sub-sections like 'Positive exit requires:', 'Negative exit requires:', etc.
+    are descriptive and ignored.
+    """
     required: list[str] = []
     min_attempts = 3
+    # Start in required mode — bullets before any sub-header are required artifacts
+    in_required_block = True
 
     for line in section_body.splitlines():
         line = line.strip()
-        if not line.startswith("- "):
-            continue
-        item = line[2:].strip()
 
-        if item.lower().startswith("required:"):
-            raw = item.split(":", 1)[1].strip()
-            parts = raw.split(",")
-            for p in parts:
-                p = p.strip()
-                if p:
-                    required.append(p)
-        elif item.lower().startswith("min_attempts:"):
+        if not line:
+            continue
+
+        # Detect min_attempts anywhere (standalone line or bullet)
+        if line.lower().startswith("min") and "attempt" in line.lower() and ":" in line:
             try:
-                min_attempts = int(item.split(":", 1)[1].strip())
+                min_attempts = int(line.split(":", 1)[1].strip())
             except ValueError:
                 pass
-        else:
-            required.append(item)
+            continue
+
+        # Non-bullet lines ending with colon/Chinese colon are sub-section headers
+        if not line.startswith("- ") and (line.endswith(":") or line.endswith("：")):
+            lower = line.lower()
+            in_required_block = (
+                "required artifact" in lower
+                or lower.startswith("required:")
+                or lower.startswith("required artifact")
+            )
+            continue
+
+        # Only parse bullets when in the required artifacts block
+        if line.startswith("- ") and in_required_block:
+            item = line[2:].strip()
+            if item.lower().startswith("required:"):
+                raw = item.split(":", 1)[1].strip()
+                for p in raw.split(","):
+                    p = p.strip()
+                    if p:
+                        required.append(p)
+            elif item.lower().startswith("min_attempts:"):
+                try:
+                    min_attempts = int(item.split(":", 1)[1].strip())
+                except ValueError:
+                    pass
+            elif item.lower().startswith("optional:"):
+                pass
+            else:
+                required.append(item)
 
     return ExitGate(required_artifacts=required, min_attempts_for_negative=min_attempts)
 

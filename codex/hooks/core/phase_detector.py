@@ -22,10 +22,9 @@ SECURITY_PATTERNS = [
     (
         "defense",
         [
-            r"\b(waf rule|csp policy|security header|auth flow|authorization model|rbac|access control model|defense mechanism|rate limit|cors policy)\b",
+            r"\b(waf rule|csp policy|security header|authorization model|rbac|access control model|defense mechanism|rate limit|cors policy)\b",
             "防护机制",
             "安全策略",
-            "认证流程",
             "授权模型",
             "访问控制",
         ],
@@ -33,7 +32,7 @@ SECURITY_PATTERNS = [
     (
         "web",
         [
-            r"\b(xss|sqli|ssrf|ssti|idor|csrf|xxe|cmdi|graphql|api|swagger|openapi|burp|repeater|proxy)\b",
+            r"\b(xss|sqli|sql injection|ssrf|ssti|idor|csrf|xxe|cmdi|graphql|api|swagger|openapi|burp|repeater|proxy|upload|download|lfi|traversal|race condition|business logic|bola|open redirect|jwt|oauth|oidc|saml|session|login|auth|token)\b",
             "SQL注入",
             "SSRF",
             "XXE",
@@ -45,6 +44,11 @@ SECURITY_PATTERNS = [
             "接口",
             "鉴权",
             "登录",
+            "上传",
+            "下载",
+            "文件",
+            "竞态",
+            "业务逻辑",
         ],
     ),
     (
@@ -160,6 +164,22 @@ SECURITY_PATTERNS = [
             "移动端",
             "证书锁定",
             "抓包",
+        ],
+    ),
+    (
+        "jailbreak",
+        [
+            r"\b(jailbreak|jail[\s-]?break|prompt injection|prompt inject|model bypass|safety bypass|content filter|refusal|guardrail|alignment bypass|unrestrict)\b",
+            "越狱",
+            "破限",
+            "提示注入",
+            "绕过限制",
+            "绕过模型",
+            "安全过滤",
+            "模型限制",
+            "内容过滤",
+            "拒绝修复",
+            "对齐绕过",
         ],
     ),
     (
