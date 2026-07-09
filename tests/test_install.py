@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import subprocess
 import sys
 import tomllib
 from pathlib import Path
@@ -146,3 +147,86 @@ def test_manifest_tracks_config_as_merged_file(tmp_path: Path) -> None:
     payload = json.loads(install.manifest_path(codex_home).read_text(encoding="utf-8"))
     assert str(codex_home / "config.toml") not in payload["managed_paths"]
     assert str(codex_home / "config.toml") in payload["merged_files"]
+
+
+def test_project_home_resolves_dot_codex_and_dot_agents(tmp_path: Path) -> None:
+    project = tmp_path / "project"
+
+    codex_home, agents_home = install.resolve_install_homes(str(project), None, None)
+
+    assert codex_home == project / ".codex"
+    assert agents_home == project / ".agents"
+
+
+def test_project_home_allows_custom_agents_home(tmp_path: Path) -> None:
+    project = tmp_path / "project"
+    custom_agents = tmp_path / "custom-agents"
+
+    codex_home, agents_home = install.resolve_install_homes(
+        str(project),
+        None,
+        str(custom_agents),
+    )
+
+    assert codex_home == project / ".codex"
+    assert agents_home == custom_agents
+
+
+def test_project_home_install_writes_under_dot_dirs(tmp_path: Path) -> None:
+    project = tmp_path / "project"
+
+    subprocess.run(
+        [sys.executable, str(INSTALL_PATH), "--project-home", str(project)],
+        cwd=REPO_ROOT,
+        check=True,
+        stdout=subprocess.DEVNULL,
+    )
+
+    assert (project / ".codex" / "config.toml").exists()
+    assert (project / ".codex" / "instruction.ctf.md").exists()
+    assert (project / ".agents" / "skills" / "redteam-cve-validation" / "SKILL.md").exists()
+    assert not (project / "config.toml").exists()
+
+
+def test_project_home_install_accepts_custom_agents_home(tmp_path: Path) -> None:
+    project = tmp_path / "project"
+    custom_agents = tmp_path / "custom-agents"
+
+    subprocess.run(
+        [
+            sys.executable,
+            str(INSTALL_PATH),
+            "--project-home",
+            str(project),
+            "--agents-home",
+            str(custom_agents),
+        ],
+        cwd=REPO_ROOT,
+        check=True,
+        stdout=subprocess.DEVNULL,
+    )
+
+    assert (project / ".codex" / "config.toml").exists()
+    assert (custom_agents / "skills" / "redteam-cve-validation" / "SKILL.md").exists()
+    assert not (project / ".agents").exists()
+
+
+def test_project_home_rejects_codex_home_mix(tmp_path: Path) -> None:
+    project = tmp_path / "project"
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(INSTALL_PATH),
+            "--project-home",
+            str(project),
+            "--codex-home",
+            str(project / "custom-codex"),
+            "--dry-run",
+        ],
+        cwd=REPO_ROOT,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+
+    assert result.returncode == 2

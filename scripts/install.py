@@ -11,6 +11,11 @@ def good(msg:str)->None: print(color(f'[OK] {msg}','32'))
 def manifest_path(codex_home:Path)->Path: return codex_home/'redteam-install-manifest.json'
 def detect_codex_home(explicit:str|None)->Path: return Path(explicit).expanduser() if explicit else Path(os.environ.get('CODEX_HOME') or (Path.home()/'.codex'))
 def detect_agents_home(explicit:str|None)->Path: return Path(explicit).expanduser() if explicit else Path.home()/'.agents'
+def resolve_install_homes(project_home:str|None,codex_home:str|None,agents_home:str|None)->tuple[Path,Path]:
+    if project_home:
+        project_root=Path(project_home).expanduser()
+        return project_root/'.codex', (Path(agents_home).expanduser() if agents_home else project_root/'.agents')
+    return detect_codex_home(codex_home), detect_agents_home(agents_home)
 def _is_within(path:Path,*roots:Path)->bool:
     resolved=path.resolve()
     return any(resolved == root.resolve() or str(resolved).startswith(str(root.resolve())+os.sep) for root in roots if root)
@@ -213,9 +218,11 @@ def uninstall(repo_root:Path,codex_home:Path,agents_home:Path,dry_run:bool)->Non
     for target in legacy_cleanup_targets(codex_home,agents_home): remove_path(target,dry_run)
     remove_agents_block(codex_home,dry_run); remove_managed_hooks(codex_home,dry_run); remove_path(manifest_path(codex_home),dry_run)
 def main()->None:
-    parser=argparse.ArgumentParser(); parser.add_argument('--codex-home'); parser.add_argument('--agents-home'); parser.add_argument('--dry-run', action='store_true'); parser.add_argument('--uninstall', action='store_true'); args=parser.parse_args()
-    repo_root=Path(__file__).resolve().parents[1]; codex_home=detect_codex_home(args.codex_home); agents_home=detect_agents_home(args.agents_home)
+    parser=argparse.ArgumentParser(); parser.add_argument('--codex-home'); parser.add_argument('--agents-home'); parser.add_argument('--project-home'); parser.add_argument('--dry-run', action='store_true'); parser.add_argument('--uninstall', action='store_true'); args=parser.parse_args()
+    if args.project_home and args.codex_home: parser.error('--project-home cannot be combined with --codex-home')
+    repo_root=Path(__file__).resolve().parents[1]; codex_home,agents_home=resolve_install_homes(args.project_home,args.codex_home,args.agents_home)
     _SAFE_ROOTS.extend([codex_home, agents_home, repo_root])
+    if args.project_home: _SAFE_ROOTS.append(Path(args.project_home).expanduser())
     info(f'platform: {platform.system()}'); info(f'codex home: {codex_home}'); info(f'agents home: {agents_home}')
     current_targets=managed_targets(repo_root,codex_home,agents_home)
     if args.uninstall: uninstall(repo_root,codex_home,agents_home,args.dry_run); good('uninstall complete'); return
