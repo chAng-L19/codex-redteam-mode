@@ -30,6 +30,8 @@ def resolve_install_paths(project_home:str|None,codex_home:str|None,agents_home:
 def resolve_install_homes(project_home:str|None,codex_home:str|None,agents_home:str|None)->tuple[Path,Path]:
     codex_home,agents_home,_=resolve_install_paths(project_home,codex_home,agents_home)
     return codex_home,agents_home
+def resolve_log_root(codex_home:Path,explicit:str|None)->Path:
+    return Path(explicit).expanduser() if explicit else codex_home/'logs'/'codex-redteam'
 def _is_within(path:Path,*roots:Path)->bool:
     resolved=path.resolve()
     return any(resolved == root.resolve() or str(resolved).startswith(str(root.resolve())+os.sep) for root in roots if root)
@@ -174,8 +176,10 @@ def load_manifest_targets(codex_home:Path)->list[Path]:
         try: targets.append(Path(raw))
         except TypeError: pass
     return targets
-def write_manifest(codex_home:Path,agents_file:Path,targets:list[Path],dry_run:bool)->None:
-    manifest=manifest_path(codex_home); payload={'name':APP_NAME,'version':APP_VERSION,'installed_at':datetime.now().isoformat(timespec='seconds'),'managed_paths':[str(path) for path in targets],'merged_files':[str(agents_file),str(codex_home/'hooks.json'),str(codex_home/'config.toml')]}
+def write_manifest(codex_home:Path,agents_file:Path,agents_home:Path,targets:list[Path],log_root:Path,custom_skill_dirs_enabled:bool,dry_run:bool)->None:
+    skills_root=agents_home/'skills'
+    skill_dirs=[str(skills_root/path.name) for path in repo_skill_dirs(Path(__file__).resolve().parents[1])]
+    manifest=manifest_path(codex_home); payload={'name':APP_NAME,'version':APP_VERSION,'installed_at':datetime.now().isoformat(timespec='seconds'),'managed_paths':[str(path) for path in targets],'merged_files':[str(agents_file),str(codex_home/'hooks.json'),str(codex_home/'config.toml')],'skills_paths':{'skills_root':str(skills_root),'skill_dirs':skill_dirs},'custom_skill_dirs_enabled':bool(custom_skill_dirs_enabled),'log_root':str(log_root)}
     info(f'write manifest {manifest}')
     if dry_run: return
     manifest.parent.mkdir(parents=True, exist_ok=True); manifest.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding='utf-8')
@@ -194,13 +198,15 @@ def uninstall(repo_root:Path,codex_home:Path,agents_home:Path,agents_file:Path,d
     if agents_file != codex_home/'AGENTS.md': remove_agents_block(codex_home/'AGENTS.md',dry_run)
     remove_managed_hooks(codex_home,dry_run); remove_path(manifest_path(codex_home),dry_run)
 def main()->None:
-    parser=argparse.ArgumentParser(); parser.add_argument('--codex-home'); parser.add_argument('--agents-home'); parser.add_argument('--project-home'); parser.add_argument('--dry-run', action='store_true'); parser.add_argument('--uninstall', action='store_true'); args=parser.parse_args()
+    parser=argparse.ArgumentParser(); parser.add_argument('--codex-home'); parser.add_argument('--agents-home'); parser.add_argument('--project-home'); parser.add_argument('--log-root'); parser.add_argument('--enable-custom-skill-dirs', action='store_true'); parser.add_argument('--dry-run', action='store_true'); parser.add_argument('--uninstall', action='store_true'); args=parser.parse_args()
     if args.project_home and args.codex_home: parser.error('--project-home cannot be combined with --codex-home')
     repo_root=Path(__file__).resolve().parents[1]; codex_home,agents_home,agents_file=resolve_install_paths(args.project_home,args.codex_home,args.agents_home)
+    log_root=resolve_log_root(codex_home,args.log_root)
     _SAFE_ROOTS.extend([codex_home, agents_home, repo_root])
     if args.project_home: _SAFE_ROOTS.append(Path(args.project_home).expanduser())
     info(f'platform: {platform.system()}'); info(f'codex home: {codex_home}'); info(f'agents home: {agents_home}')
     info(f'AGENTS.md: {agents_file}')
+    info(f'log root: {log_root}')
     current_targets=managed_targets(repo_root,codex_home,agents_home)
     if args.uninstall: uninstall(repo_root,codex_home,agents_home,agents_file,args.dry_run); good('uninstall complete'); return
     upgrade_cleanup(codex_home,agents_home,agents_file,current_targets,args.dry_run)
@@ -215,5 +221,5 @@ def main()->None:
     copy_tree(repo_root/'codex'/'automation', codex_home/'automation', args.dry_run)
     copy_tree(repo_root/'codex'/'session_patcher', codex_home/'session_patcher', args.dry_run)
     for skill_dir in repo_skill_dirs(repo_root): copy_skill_md(skill_dir, agents_home/'skills'/skill_dir.name, args.dry_run)
-    merge_hooks_json(repo_root,codex_home,args.dry_run); write_manifest(codex_home,agents_file,current_targets,args.dry_run); run_validate(repo_root,codex_home,args.dry_run); good('install complete')
+    merge_hooks_json(repo_root,codex_home,args.dry_run); write_manifest(codex_home,agents_file,agents_home,current_targets,log_root,args.enable_custom_skill_dirs,args.dry_run); run_validate(repo_root,codex_home,args.dry_run); good('install complete')
 if __name__=='__main__': main()

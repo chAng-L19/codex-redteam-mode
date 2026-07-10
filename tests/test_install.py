@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 import subprocess
 import sys
 import tomllib
@@ -185,12 +186,24 @@ def test_manifest_tracks_config_as_merged_file(tmp_path: Path) -> None:
     managed = [codex_home / "instruction.ctf.md"]
     agents_file = tmp_path / "AGENTS.md"
 
-    install.write_manifest(codex_home, agents_file, managed, dry_run=False)
+    agents_home = tmp_path / ".agents"
+    install.write_manifest(
+        codex_home,
+        agents_file,
+        agents_home,
+        managed,
+        codex_home / "logs" / "codex-redteam",
+        False,
+        dry_run=False,
+    )
 
     payload = json.loads(install.manifest_path(codex_home).read_text(encoding="utf-8"))
     assert str(codex_home / "config.toml") not in payload["managed_paths"]
     assert str(codex_home / "config.toml") in payload["merged_files"]
     assert str(agents_file) in payload["merged_files"]
+    assert payload["skills_paths"]["skills_root"] == str(agents_home / "skills")
+    assert payload["custom_skill_dirs_enabled"] is False
+    assert payload["log_root"] == str(codex_home / "logs" / "codex-redteam")
 
 
 def test_project_home_resolves_dot_codex_and_dot_agents(tmp_path: Path) -> None:
@@ -234,6 +247,11 @@ def test_project_home_install_writes_under_dot_dirs(tmp_path: Path) -> None:
     assert not (project / ".codex" / "AGENTS.md").exists()
     assert (project / ".agents" / "skills" / "redteam-cve-validation" / "SKILL.md").exists()
     assert not (project / "config.toml").exists()
+    payload = json.loads((project / ".codex" / "redteam-install-manifest.json").read_text(encoding="utf-8"))
+    assert payload["skills_paths"]["skills_root"] == str(project / ".agents" / "skills")
+    assert str(project / ".agents" / "skills" / "redteam-cve-validation") in payload["skills_paths"]["skill_dirs"]
+    assert payload["custom_skill_dirs_enabled"] is False
+    assert payload["log_root"] == str(project / ".codex" / "logs" / "codex-redteam")
 
 
 def test_project_home_migrates_old_dot_codex_agents_block(tmp_path: Path) -> None:
@@ -298,6 +316,50 @@ def test_project_home_install_accepts_custom_agents_home(tmp_path: Path) -> None
     assert (project / ".codex" / "config.toml").exists()
     assert (custom_agents / "skills" / "redteam-cve-validation" / "SKILL.md").exists()
     assert not (project / ".agents").exists()
+    payload = json.loads((project / ".codex" / "redteam-install-manifest.json").read_text(encoding="utf-8"))
+    assert payload["skills_paths"]["skills_root"] == str(custom_agents / "skills")
+    assert str(custom_agents / "skills" / "redteam-cve-validation") in payload["skills_paths"]["skill_dirs"]
+
+
+def test_install_manifest_records_custom_skill_dirs_and_log_root(tmp_path: Path) -> None:
+    project = tmp_path / "project"
+    custom_log = tmp_path / "custom-logs"
+
+    subprocess.run(
+        [
+            sys.executable,
+            str(INSTALL_PATH),
+            "--project-home",
+            str(project),
+            "--enable-custom-skill-dirs",
+            "--log-root",
+            str(custom_log),
+        ],
+        cwd=REPO_ROOT,
+        check=True,
+        stdout=subprocess.DEVNULL,
+    )
+
+    payload = json.loads((project / ".codex" / "redteam-install-manifest.json").read_text(encoding="utf-8"))
+    assert payload["custom_skill_dirs_enabled"] is True
+    assert payload["log_root"] == str(custom_log)
+
+
+def test_codex_home_install_manifest_log_root_follows_codex_home(tmp_path: Path) -> None:
+    codex_home = tmp_path / "custom-codex"
+    agents_home = tmp_path / "custom-agents"
+    env = {**os.environ, "CODEX_HOME": str(codex_home)}
+
+    subprocess.run(
+        [sys.executable, str(INSTALL_PATH), "--agents-home", str(agents_home)],
+        cwd=REPO_ROOT,
+        check=True,
+        stdout=subprocess.DEVNULL,
+        env=env,
+    )
+
+    payload = json.loads((codex_home / "redteam-install-manifest.json").read_text(encoding="utf-8"))
+    assert payload["log_root"] == str(codex_home / "logs" / "codex-redteam")
 
 
 def test_project_home_rejects_codex_home_mix(tmp_path: Path) -> None:
