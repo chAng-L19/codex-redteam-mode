@@ -560,10 +560,7 @@ def process_turn(
     if not _has_declared_exit_gate(skill_card):
         from router.mappings import ROUTER_PACK_MAP
         mapped_pack = ROUTER_PACK_MAP.get(working.leaf_skill, working.skill_pack or "")
-        # Prefer project-local agents/skills/ (most current) over installed user dir
-        pack_card = load_skill_card(codex_dir.parent / "agents" / "skills", mapped_pack)
-        if not _has_declared_exit_gate(pack_card):
-            pack_card = load_skill_card(skills_dir, mapped_pack)
+        pack_card = load_skill_card(skills_dir, mapped_pack)
         if _has_declared_exit_gate(pack_card):
             skill_card = pack_card
 

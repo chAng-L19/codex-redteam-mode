@@ -14,12 +14,29 @@ from tomlkit.exceptions import ParseError as TomlParseError
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 INSTALL_PATH = REPO_ROOT / "scripts" / "install.py"
+SKILL_CARD_PATH = REPO_ROOT / "codex" / "hooks" / "core" / "skill_card.py"
 
 spec = importlib.util.spec_from_file_location("install_script", INSTALL_PATH)
 install = importlib.util.module_from_spec(spec)
 sys.modules[spec.name] = install
 assert spec.loader is not None
 spec.loader.exec_module(install)
+
+skill_spec = importlib.util.spec_from_file_location("skill_card_script", SKILL_CARD_PATH)
+skill_card = importlib.util.module_from_spec(skill_spec)
+sys.modules[skill_spec.name] = skill_card
+assert skill_spec.loader is not None
+skill_spec.loader.exec_module(skill_card)
+
+
+def _write_skill(skills_root: Path, name: str = "redteam-demo") -> Path:
+    skill_dir = skills_root / name
+    skill_dir.mkdir(parents=True)
+    skill_dir.joinpath("SKILL.md").write_text(
+        f"---\nname: {name}\ndescription: demo\n---\n\n# Demo\n",
+        encoding="utf-8",
+    )
+    return skill_dir
 
 
 def test_merge_config_preserves_user_sections(tmp_path: Path) -> None:
@@ -360,6 +377,73 @@ def test_codex_home_install_manifest_log_root_follows_codex_home(tmp_path: Path)
 
     payload = json.loads((codex_home / "redteam-install-manifest.json").read_text(encoding="utf-8"))
     assert payload["log_root"] == str(codex_home / "logs" / "codex-redteam")
+
+
+def test_skill_resolver_ignores_agents_home_and_uses_project_dot_agents(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    project = tmp_path / "project"
+    fake_home = tmp_path / "home"
+    env_agents = tmp_path / "env-agents"
+    _write_skill(project / ".agents" / "skills")
+    _write_skill(env_agents / "skills")
+    monkeypatch.setattr(skill_card.Path, "home", classmethod(lambda cls: fake_home))
+    monkeypatch.setenv("AGENTS_HOME", str(env_agents))
+
+    resolved = skill_card.resolve_skills_dir(project / ".codex")
+
+    assert resolved == project / ".agents" / "skills"
+
+
+def test_skill_resolver_uses_custom_manifest_skills_root_when_enabled(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    project = tmp_path / "project"
+    custom_root = tmp_path / "custom-agents" / "skills"
+    fake_home = tmp_path / "home"
+    _write_skill(project / ".agents" / "skills")
+    _write_skill(custom_root)
+    manifest = project / ".codex" / "redteam-install-manifest.json"
+    manifest.parent.mkdir(parents=True)
+    manifest.write_text(
+        json.dumps(
+            {
+                "custom_skill_dirs_enabled": True,
+                "skills_paths": {
+                    "skills_root": str(custom_root),
+                    "skill_dirs": [str(custom_root / "redteam-demo")],
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(skill_card.Path, "home", classmethod(lambda cls: fake_home))
+
+    resolved = skill_card.resolve_skills_dir(project / ".codex")
+
+    assert resolved == custom_root
+
+
+def test_skill_resolver_falls_back_to_manifest_root_when_defaults_missing(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    project = tmp_path / "project"
+    custom_root = tmp_path / "custom-agents" / "skills"
+    fake_home = tmp_path / "home"
+    _write_skill(custom_root)
+    manifest = project / ".codex" / "redteam-install-manifest.json"
+    manifest.parent.mkdir(parents=True)
+    manifest.write_text(
+        json.dumps(
+            {
+                "custom_skill_dirs_enabled": False,
+                "skills_paths": {
+                    "skills_root": str(custom_root),
+                    "skill_dirs": [str(custom_root / "redteam-demo")],
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(skill_card.Path, "home", classmethod(lambda cls: fake_home))
+
+    resolved = skill_card.resolve_skills_dir(project / ".codex")
+
+    assert resolved == custom_root
 
 
 def test_project_home_rejects_codex_home_mix(tmp_path: Path) -> None:
