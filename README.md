@@ -271,6 +271,9 @@ Before planning tool use, the automation layer reads the user's local MCP/tool i
 ## Validation
 
 ```bash
+# Install test dependencies
+python -m pip install -r requirements-dev.txt
+
 # Full test suite
 python -m pytest -q
 
