@@ -846,6 +846,33 @@ def test_merge_hooks_json_accepts_utf8_bom_and_preserves_user_hooks(tmp_path: Pa
     assert any("session-start-context.py" in command for command in commands)
 
 
+def test_validator_accepts_utf8_bom_hooks_json(tmp_path: Path) -> None:
+    codex_home = tmp_path / "codex-home"
+    agents_home = tmp_path / "agents-home"
+    env = {**os.environ, "CODEX_HOME": str(codex_home), "NO_COLOR": "1"}
+    subprocess.run(
+        [
+            sys.executable,
+            str(INSTALL_PATH),
+            "--codex-home",
+            str(codex_home),
+            "--agents-home",
+            str(agents_home),
+            "--enable-custom-skill-dirs",
+        ],
+        check=True,
+        env=env,
+        stdout=subprocess.DEVNULL,
+    )
+    hooks_path = codex_home / "hooks.json"
+    hooks_path.write_bytes(b"\xef\xbb\xbf" + hooks_path.read_bytes())
+
+    all_ok, messages = validate.validate_install(codex_home)
+
+    assert all_ok is True
+    assert any(message.startswith("hooks.json: valid") for message in messages)
+
+
 @pytest.mark.skipif(os.name != "nt", reason="commandWindows is executed by cmd.exe")
 def test_installed_hook_commands_support_windows_paths_with_spaces(tmp_path: Path) -> None:
     codex_home = tmp_path / "codex home with spaces"

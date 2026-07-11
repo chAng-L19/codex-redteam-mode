@@ -23,6 +23,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Red-team light/full activation and resumed or compacted red-team sessions now inject the complete `Reverse.md` supplemental context directly. Normal startup remains free of this mode-level overlay, and subsequent task prompts continue to use the existing per-turn `phase -> router -> pack -> leaf` routing.
 - Normal `SessionStart` no longer injects the additional prepoison or refusal backstop. Light/full activation injects the existing prepoison once, resume/compact restores it only for active red-team sessions, and disabling the mode now accurately describes the base profile and retained task history.
 - Session state now persists under `$CODEX_HOME/redteam-mode/state/sessions` (falling back to `~/.codex`) instead of `TEMP`/`TMP`; session memory uses the sibling `memory` directory, missing session IDs no longer create shared `global.json` state, and uninstall intentionally preserves these runtime files.
+- Generated hook definitions now provide correctly quoted POSIX and Windows commands, preventing Python or Codex Home paths containing spaces from breaking `SessionStart` and `UserPromptSubmit`.
+- Existing manifests now fail closed when their JSON structure or managed paths are invalid, before any installation, cleanup, or uninstall changes occur.
+- Upgrades retain the previous manifest during deployment, validate with a candidate manifest, and atomically replace the manifest only after validation succeeds.
+- Installed `hooks.json` validation now uses BOM-tolerant UTF-8 decoding, matching installer behavior and the documented BOM support.
 
 ### Changed
 

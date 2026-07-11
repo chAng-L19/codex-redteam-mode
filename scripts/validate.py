@@ -223,7 +223,7 @@ def validate_install(codex_home: Path, manifest_override: Path | None = None) ->
     hooks_path = repo_root / "hooks.json"
     if hooks_path.exists():
         try:
-            data = json.loads(hooks_path.read_text(encoding="utf-8"))
+            data = json.loads(hooks_path.read_text(encoding="utf-8-sig"))
             hooks_root = data.get("hooks", {})
             hook_count = sum(
                 len(entries) for entries in hooks_root.values()

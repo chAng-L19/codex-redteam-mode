@@ -154,8 +154,8 @@ $CODEX_HOME/redteam-mode/state
 7. **Seed prompts** — copies prompt files to the selected Codex Home's `prompts/` directory (skips existing)
 8. **Merge hooks.json** — strips old managed hooks, then injects the current `SessionStart` and `UserPromptSubmit` hooks (preserves user-defined hooks)
 9. **Merge AGENTS.md** — injects or updates a managed block (`<!-- codex-redteam-optin-mode:start -->`) into the selected Codex Home's `AGENTS.md` as global guidance, or `<project>/AGENTS.md` with `--project-home` as project guidance (preserves user content outside the block)
-10. **Write manifest** — records managed paths, merged files, skill-card paths, custom skill-dir mode, and automation log root to `redteam-install-manifest.json`
-11. **Validate** — runs `scripts/validate.py` to parse the installed configuration, verify every subsystem file, and report both installed and runtime-selected skill roots
+10. **Validate candidate** — runs `scripts/validate.py` against the deployed files and a candidate manifest, verifying every subsystem and the installed/runtime-selected skill roots
+11. **Commit manifest** — atomically replaces `redteam-install-manifest.json` only after validation succeeds; the previous manifest remains available if deployment or validation fails
 
 ### Upgrade & Idempotency
 
@@ -167,7 +167,9 @@ On each run, it reads the previous manifest, removes only project-managed files 
 - `config.toml` merging uses `tomlkit` so array tables such as `[[skills.config]]` do not receive keys meant for `[automation]`
 - The manifest records each `config.toml` value and table added by the installer; uninstall removes only unchanged installer-owned values before deleting referenced files, while user-modified values are preserved
 - Legacy manifests without field ownership metadata preserve `instruction.ctf.md` when `config.toml` still references it, avoiding a broken Codex profile after uninstall
-- Invalid existing `config.toml` or `hooks.json` fails during preflight before files are copied or previous manifest paths are cleaned; UTF-8 BOM-prefixed config and hooks files are accepted by both validation and runtime loading
+- Invalid existing `config.toml`, `hooks.json`, or install manifests fail during preflight before files are copied or previous paths are cleaned; UTF-8 BOM-prefixed config and hooks files are accepted consistently by installation and validation
+- Generated hooks contain separately quoted POSIX and Windows commands, so Python and custom Codex Home paths containing spaces execute correctly
+- Upgrades retain the previous manifest during deployment, validate with a candidate manifest, and atomically replace it only after validation succeeds
 - Upgrade and uninstall cleanup abort before changing files when an existing managed path is outside the current scope; the manifest is preserved so the operation can be retried with the original path arguments
 - Custom `--agents-home` installs warn when runtime priority is not enabled, and validation reports when the runtime-selected skill root differs from the installed root
 - `SessionStart` and `UserPromptSubmit` output only Codex-supported wire fields; route phase remains inside `additionalContext` instead of being serialized as an unknown field
