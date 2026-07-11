@@ -12,7 +12,7 @@ except ModuleNotFoundError as exc:
         file=sys.stderr,
     )
     raise SystemExit(1) from exc
-APP_NAME='codex-redteam-optin-mode'; APP_VERSION='1.1.6'
+APP_NAME='codex-redteam-optin-mode'; APP_VERSION='1.1.7'
 AGENTS_BLOCK_START='<!-- codex-redteam-optin-mode:start -->'; AGENTS_BLOCK_END='<!-- codex-redteam-optin-mode:end -->'
 SESSION_STATUS='Loading session mode context'; PROMPT_STATUS='Checking mode-gated offensive routing'
 _MISSING=object()

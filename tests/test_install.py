@@ -929,6 +929,58 @@ def test_installed_hook_commands_support_windows_shell_metacharacters(tmp_path: 
     assert "Red-team mode enabled" in json.loads(enabled.stdout)["hookSpecificOutput"]["additionalContext"]
 
 
+@pytest.mark.skipif(os.name == "nt", reason="POSIX hook command is executed by /bin/sh")
+def test_installed_hook_commands_support_posix_shell_metacharacters(tmp_path: Path) -> None:
+    special_name = "home & (qa) ! ^ $HOME ' 中文 with spaces"
+    codex_home = tmp_path / f"codex {special_name}"
+    agents_home = tmp_path / f"agents {special_name}"
+    env = {**os.environ, "CODEX_HOME": str(codex_home), "NO_COLOR": "1"}
+
+    subprocess.run(
+        [
+            sys.executable,
+            str(INSTALL_PATH),
+            "--codex-home",
+            str(codex_home),
+            "--agents-home",
+            str(agents_home),
+            "--enable-custom-skill-dirs",
+        ],
+        check=True,
+        env=env,
+        stdout=subprocess.DEVNULL,
+    )
+
+    hooks_payload = json.loads((codex_home / "hooks.json").read_text(encoding="utf-8"))
+    session_command = hooks_payload["hooks"]["SessionStart"][0]["hooks"][0]["command"]
+    prompt_command = hooks_payload["hooks"]["UserPromptSubmit"][0]["hooks"][0]["command"]
+    session_id = "posix-special-path-session"
+
+    started = subprocess.run(
+        session_command,
+        input=json.dumps({"session_id": session_id, "source": "startup"}),
+        text=True,
+        shell=True,
+        capture_output=True,
+        env=env,
+        check=False,
+    )
+    assert started.returncode == 0, started.stderr
+    assert "Default is normal" in json.loads(started.stdout)["hookSpecificOutput"]["additionalContext"]
+
+    enabled = subprocess.run(
+        prompt_command,
+        input=json.dumps({"session_id": session_id, "prompt": "/redteam light"}),
+        text=True,
+        shell=True,
+        capture_output=True,
+        env=env,
+        check=False,
+    )
+    assert enabled.returncode == 0, enabled.stderr
+    assert "Red-team mode enabled" in json.loads(enabled.stdout)["hookSpecificOutput"]["additionalContext"]
+
+
 @pytest.mark.parametrize(
     "hooks_bytes",
     [

@@ -2,7 +2,7 @@
 
 [中文说明](./README_ZH.md)
 
-**Current release:** v1.1.6
+**Current release:** v1.1.7
 
 > Structured red-team routing is off by default and must be enabled explicitly. The base `instruction.ctf.md` security profile remains active in every mode.
 
@@ -146,7 +146,7 @@ $CODEX_HOME/redteam-mode/state
 ### What the Installer Does
 
 1. **Configuration preflight** — parses and plans both `config.toml` and `hooks.json` merges before copying or cleaning any files, so invalid existing configuration leaves the install untouched
-2. **Upgrade cleanup** — reads the manifest from the selected Codex Home (`<codex-home>/redteam-install-manifest.json`), preflights every existing managed path against the current cleanup scope, then removes old tracked paths plus known legacy remnants (`legacy-redteam-hook.py`, `red-team-command-doctrine-old`)
+2. **Upgrade cleanup** — reads the formal manifest and any pending install transaction, preflights their combined managed targets against the current cleanup scope, then removes old/incomplete targets plus known legacy remnants
 3. **Core files** — copies `instruction.ctf.md` and merges `config.toml` into the selected Codex Home (`~/.codex/`, custom `--codex-home`, or `<project>/.codex/`)
 4. **Hooks** — deploys `session-start-context.py`, `hook-security-context-hook.py`, `redteam_state.py`, and `core/` to the selected Codex Home's `hooks/`
 5. **Subsystems** — deploys `router/`, `orchestrator/`, `automation/`, and `session_patcher/` to the selected Codex Home
@@ -155,7 +155,7 @@ $CODEX_HOME/redteam-mode/state
 8. **Merge hooks.json** — strips old managed hooks, then injects the current `SessionStart` and `UserPromptSubmit` hooks (preserves user-defined hooks)
 9. **Merge AGENTS.md** — injects or updates a managed block (`<!-- codex-redteam-optin-mode:start -->`) into the selected Codex Home's `AGENTS.md` as global guidance, or `<project>/AGENTS.md` with `--project-home` as project guidance (preserves user content outside the block)
 10. **Validate candidate** — runs `scripts/validate.py` against the deployed files and a candidate manifest, verifying every subsystem and the installed/runtime-selected skill roots
-11. **Commit manifest** — atomically replaces `redteam-install-manifest.json` only after validation succeeds; the previous manifest remains available if deployment or validation fails
+11. **Commit manifest** — atomically replaces `redteam-install-manifest.json` and removes the pending transaction only after validation succeeds; failed deployments retain previous and candidate targets for retry or uninstall recovery
 
 ### Upgrade & Idempotency
 
@@ -167,9 +167,10 @@ On each run, it reads the previous manifest, removes only project-managed files 
 - `config.toml` merging uses `tomlkit` so array tables such as `[[skills.config]]` do not receive keys meant for `[automation]`
 - The manifest records each `config.toml` value and table added by the installer; uninstall removes only unchanged installer-owned values before deleting referenced files, while user-modified values are preserved
 - Legacy manifests without field ownership metadata preserve `instruction.ctf.md` when `config.toml` still references it, avoiding a broken Codex profile after uninstall
-- Invalid existing `config.toml`, `hooks.json`, or install manifests fail during preflight before files are copied or previous paths are cleaned; UTF-8 BOM-prefixed config and hooks files are accepted consistently by installation and validation
-- Generated hooks contain separately quoted POSIX and Windows commands, so Python and custom Codex Home paths containing spaces execute correctly
-- Upgrades retain the previous manifest during deployment, validate with a candidate manifest, and atomically replace it only after validation succeeds
+- Invalid existing `config.toml`, `hooks.json`, install manifests, or pending transactions fail during preflight before files are copied or previous paths are cleaned; UTF-8 BOM-prefixed config and hooks files are accepted consistently by installation and validation
+- POSIX hooks use shell-safe argument joining, while Windows hooks use encoded PowerShell commands so spaces, Unicode, quotes, and `cmd.exe` metacharacters in Python or Codex Home paths are not reinterpreted
+- Upgrades write a pending transaction before cleanup. Retry and uninstall reconcile the union of previous and candidate targets, and successful validation atomically commits the formal manifest and removes the transaction
+- GitHub Actions runs the full test suite on Windows, Ubuntu, and macOS with Python 3.11
 - Upgrade and uninstall cleanup abort before changing files when an existing managed path is outside the current scope; the manifest is preserved so the operation can be retried with the original path arguments
 - Custom `--agents-home` installs warn when runtime priority is not enabled, and validation reports when the runtime-selected skill root differs from the installed root
 - `SessionStart` and `UserPromptSubmit` output only Codex-supported wire fields; route phase remains inside `additionalContext` instead of being serialized as an unknown field
