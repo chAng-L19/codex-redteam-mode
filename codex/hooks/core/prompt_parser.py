@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import re
 from typing import Any, Optional
 
@@ -52,10 +51,6 @@ def decode_stdin(data: bytes) -> str:
         except Exception:
             continue
     return data.decode("utf-8", "replace")
-
-
-def load_payload(raw: str) -> Any:
-    return json.loads(raw)
 
 
 def _extract_text_block(content: Any) -> str:

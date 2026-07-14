@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import inspect
 import json
 import os
 import subprocess
@@ -79,6 +80,10 @@ def _run_hook_script_bytes(script: Path, payload: dict, env: dict[str, str]) -> 
         check=True,
         capture_output=True,
     )
+
+
+def test_prompt_parser_does_not_export_json_wrapper() -> None:
+    assert not hasattr(prompt_parser, "load_payload")
 
 
 @pytest.mark.parametrize("event", ["SessionStart", "UserPromptSubmit"])
@@ -364,6 +369,13 @@ def test_state_paths_fall_back_to_user_codex_home(tmp_path: Path, monkeypatch: p
     monkeypatch.setattr(redteam_state.Path, "home", classmethod(lambda cls: fake_home))
 
     assert redteam_state.state_dir() == fake_home / ".codex" / "redteam-mode" / "state" / "sessions"
+
+
+def test_state_path_requires_string_session_id() -> None:
+    parameter = inspect.signature(redteam_state.state_path).parameters["session_id"]
+
+    assert parameter.annotation == "str"
+    assert parameter.default is inspect.Parameter.empty
 
 
 def test_missing_session_id_does_not_create_global_state(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

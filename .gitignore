@@ -1,0 +1,42 @@
+# Local debug artifacts
+/temp/
+/debug_hook_runner.py
+
+# IDE settings
+/.idea/
+/.vscode/
+*.iml
+
+# Python bytecode and tool caches
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.pyre/
+.pytype/
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Coverage and build output
+.coverage
+.coverage.*
+htmlcov/
+build/
+dist/
+*.egg-info/
+
+# Local environment and log files
+.env
+.env.*
+!.env.example
+*.log
+
+# Operating-system metadata
+.DS_Store
+Thumbs.db

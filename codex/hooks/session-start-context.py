@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 
@@ -13,7 +14,7 @@ for candidate in (HOOKS_DIR, CODEX_DIR):
 
 from core import build_prompt_chain_notice, build_redteam_mode_overlay, emit_hook_json, extract_session_id, extract_session_start_source, extract_transcript_path, load_runtime_state, reset_runtime_state
 from core.context_prepoison import build_prepoisoned_context
-from core.prompt_parser import decode_stdin, load_payload
+from core.prompt_parser import decode_stdin
 from core.refusal_backstop import session_start_backstop_messages
 
 
@@ -24,7 +25,7 @@ def main() -> None:
     source = ""
     if raw.strip():
         try:
-            payload = load_payload(raw)
+            payload = json.loads(raw)
             session_id = extract_session_id(payload)
             transcript_path = extract_transcript_path(payload)
             source = extract_session_start_source(payload)

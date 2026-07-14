@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import json
 import sys
 from dataclasses import replace
 from pathlib import Path
@@ -14,7 +15,7 @@ for candidate in (HOOKS_DIR, CODEX_DIR):
 
 from core import build_redteam_mode_overlay, emit_hook_json, extract_prompt, extract_session_id, load_runtime_state, parse_mode_command, parse_opsec_command, save_runtime_state
 from core.controller import process_turn
-from core.prompt_parser import decode_stdin, load_payload
+from core.prompt_parser import decode_stdin
 from core.refusal_backstop import build_recent_refusal_overlay, payload_has_recent_refusal
 from redteam_state import default_state
 
@@ -24,7 +25,7 @@ def main() -> None:
     if not raw.strip():
         return
     try:
-        payload = load_payload(raw)
+        payload = json.loads(raw)
     except Exception:
         return
 

@@ -141,7 +141,7 @@ def _safe_session_key(session_id: str | None) -> str:
     return safe[:120]
 
 
-def state_path(session_id: str | None = None) -> Path:
+def state_path(session_id: str) -> Path:
     return state_dir() / f"{_safe_session_key(session_id)}.json"
 
 
