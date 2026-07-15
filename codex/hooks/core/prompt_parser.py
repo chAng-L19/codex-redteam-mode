@@ -74,17 +74,19 @@ def extract_session_start_source(payload: object) -> str:
 
 
 def parse_mode_command(prompt: str) -> Optional[str]:
+    candidate = prompt.strip()
     for pat, mode in ENABLE_PATTERNS:
-        if re.search(pat, prompt, re.I):
+        if re.fullmatch(pat, candidate, re.I):
             return mode
     for pat in DISABLE_PATTERNS:
-        if re.search(pat, prompt, re.I):
+        if re.fullmatch(pat, candidate, re.I):
             return "normal"
     return None
 
 
 def parse_opsec_command(prompt: str) -> Optional[str]:
+    candidate = prompt.strip()
     for pat, level in OPSEC_PATTERNS:
-        if re.search(pat, prompt, re.I):
+        if re.fullmatch(pat, candidate, re.I):
             return level
     return None

@@ -173,7 +173,7 @@ python scripts/install.py   # second run: cleanup → fresh deploy → same stat
 enable red team mode
 ```
 
-Submit mode commands as a separate prompt. Enabling `redteam-light` or `redteam-full` injects the shared prepoison and `Reverse.md` supplemental context once; each subsequent task prompt is routed independently through `phase -> router -> pack -> leaf`. Active red-team sessions inject the same supplemental context again on `resume` or `compact`.
+Submit mode and OPSEC commands as a separate prompt containing only the command; leading and trailing whitespace is allowed. Quoted commands, negations, code examples, command suffixes, and prompts containing multiple commands do not change session state. Enabling `redteam-light` or `redteam-full` injects the shared prepoison and `Reverse.md` supplemental context once; each subsequent task prompt is routed independently through `phase -> router -> pack -> leaf`. Active red-team sessions inject the same supplemental context again on `resume` or `compact`.
 
 ### Disable Red Team Mode
 

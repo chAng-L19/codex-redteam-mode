@@ -379,6 +379,71 @@ def test_session_start_rejects_payload_without_official_session_id(tmp_path: Pat
     assert started.stdout == ""
 
 
+@pytest.mark.parametrize(
+    ("command", "expected_mode"),
+    [
+        ("/redteam on", "redteam-light"),
+        ("/redteam light", "redteam-light"),
+        ("/redteam full", "redteam-full"),
+        ("/redteam off", "normal"),
+        ("进入红队模式", "redteam-light"),
+        ("开启红队模式", "redteam-light"),
+        ("退出红队模式", "normal"),
+        ("关闭红队模式", "normal"),
+        ("enable red team mode", "redteam-light"),
+        ("disable red team mode", "normal"),
+        ("  /REDTEAM   LIGHT  ", "redteam-light"),
+    ],
+)
+def test_mode_commands_require_the_entire_prompt(command: str, expected_mode: str) -> None:
+    assert prompt_parser.parse_mode_command(command) == expected_mode
+
+
+@pytest.mark.parametrize(
+    "prompt",
+    [
+        "请解释 /redteam light 命令",
+        "/redteam light 请分析登录接口",
+        "文档中写着 /redteam off",
+        "比较 /redteam full 与 /redteam off",
+        "/redteam light /redteam off",
+        "不要开启红队模式",
+        "不要关闭红队模式",
+        "The document says enable red team mode.",
+        "Do not disable red team mode while testing.",
+        "`/redteam off`",
+        "/redteam light\n/redteam off",
+    ],
+)
+def test_mode_command_mentions_are_not_commands(prompt: str) -> None:
+    assert prompt_parser.parse_mode_command(prompt) is None
+
+
+@pytest.mark.parametrize(
+    ("command", "expected_level"),
+    [
+        ("/opsec strict", "strict"),
+        ("/opsec balanced", "balanced"),
+        ("  /OPSEC   STRICT  ", "strict"),
+    ],
+)
+def test_opsec_commands_require_the_entire_prompt(command: str, expected_level: str) -> None:
+    assert prompt_parser.parse_opsec_command(command) == expected_level
+
+
+@pytest.mark.parametrize(
+    "prompt",
+    [
+        "代码示例：`/opsec strict`",
+        "/opsec balanced 后继续任务",
+        "比较 /opsec strict 和 /opsec balanced",
+        "do not run /opsec strict",
+    ],
+)
+def test_opsec_command_mentions_are_not_commands(prompt: str) -> None:
+    assert prompt_parser.parse_opsec_command(prompt) is None
+
+
 def test_session_start_preserves_mode_on_resume_and_compact(tmp_path: Path) -> None:
     session_id = "resume-session"
     temp_dir = tmp_path / "temp"
@@ -511,6 +576,60 @@ def test_mode_disable_describes_remaining_base_and_history_context(tmp_path: Pat
         env,
     )
     assert after_disable.stdout == ""
+
+
+def test_embedded_enable_command_does_not_modify_normal_state(tmp_path: Path) -> None:
+    session_id = "embedded-enable-session"
+    codex_home = tmp_path / "codex-home"
+    env = {**os.environ, "CODEX_HOME": str(codex_home), "NO_COLOR": "1"}
+
+    submitted = _run_hook_script(
+        PROMPT_HOOK,
+        {"session_id": session_id, "prompt": "请解释 /redteam light 命令"},
+        env,
+    )
+
+    assert submitted.stdout == ""
+    assert not (codex_home / "redteam-mode" / "state" / "sessions" / f"{session_id}.json").exists()
+
+
+def test_embedded_disable_command_routes_without_disabling_active_mode(tmp_path: Path) -> None:
+    session_id = "embedded-disable-session"
+    codex_home = tmp_path / "codex-home"
+    env = {
+        **os.environ,
+        "CODEX_HOME": str(codex_home),
+        "CODEX_REDTEAM_AUTOMATION_MODE": "plan-only",
+        "NO_COLOR": "1",
+    }
+    state_path = codex_home / "redteam-mode" / "state" / "sessions" / f"{session_id}.json"
+
+    _run_hook_script(PROMPT_HOOK, {"session_id": session_id, "prompt": "/redteam light"}, env)
+    submitted = _run_hook_script(
+        PROMPT_HOOK,
+        {"session_id": session_id, "prompt": "分析文档中出现的 /redteam off 字符串"},
+        env,
+    )
+
+    context = json.loads(submitted.stdout)["hookSpecificOutput"]["additionalContext"]
+    assert "[mode:redteam-light]" in context
+    assert "Structured red-team routing disabled" not in context
+    assert json.loads(state_path.read_text(encoding="utf-8"))["mode"] == "redteam-light"
+
+
+def test_embedded_opsec_command_does_not_modify_state(tmp_path: Path) -> None:
+    session_id = "embedded-opsec-session"
+    codex_home = tmp_path / "codex-home"
+    env = {**os.environ, "CODEX_HOME": str(codex_home), "NO_COLOR": "1"}
+
+    submitted = _run_hook_script(
+        PROMPT_HOOK,
+        {"session_id": session_id, "prompt": "代码示例：`/opsec strict`"},
+        env,
+    )
+
+    assert submitted.stdout == ""
+    assert not (codex_home / "redteam-mode" / "state" / "sessions" / f"{session_id}.json").exists()
 
 
 def test_state_paths_use_codex_home_and_ignore_temp(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
