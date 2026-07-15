@@ -225,46 +225,6 @@ default = "Jailbreak.default.md"
 
 profile 文件位于 `$CODEX_HOME/prompts/`。匹配采用模型名通配符；未匹配或专用文件缺失时回落到 `default`。App/普通 CLI 由系统路由目录加 `SessionStart` 元数据选择；`codex-redteam` CLI 启动器则在进程启动前加载单 Profile。两种方式都以新对话为切换边界。
 
-## 工作流程
-
-红队模式开启后，运行时按以下主线工作：
-
-```
-phase → router → pack → leaf
-```
-
-1. **Phase 检测** — 规则优先匹配任务意图；模糊任务由语义判断兜底
-2. **Router** — 将 phase 映射到对应的 detail pack 系列
-3. **Pack** — 加载匹配领域的紧凑、可测试的技能包
-4. **Leaf** — 执行具体技能或技术
-
-`method` 仅作为**软提示**——可能在技术选择时提供参考，但不是主路由轴。
-
-### 5-Phase 引擎 (v1.0.0)
-
-Controller 通过结构化 pipeline 编排工作：
-
-```
-intent → phase routing → SKILL.md → taskbook → loop decision
-```
-
-- **SKILL.md 领域卡** — 每个领域通过纯 Markdown 的 `SKILL.md` 声明范围和退出条件。包含四个标准节：`## Domain`（领域和适用场景）、`## Boundaries`（禁止操作列表）、`## Pivot Hints`（转向建议）、`## Exit Evidence`（退出证据要求，含 required artifacts 和 minimum attempts）。
-- **分级反馈门** — 四级 gate 判定：`pass`（推进）、`soft_fail`（重试/微调）、`pivot`（换路径）、`blocked`（停止等待人工）。
-- **Loop Engine** — `decide_loop_action()` 输出五种决策之一：advance / verify / pivot / blocked / continue。
-- **Phase Drive** — 编排更高层级工作流：recon → strategy → testing → reporting。
-
-全程贯彻证据优先推理：证明一条路径后再扩展，区分事实与假设，以一条具体的下一步结束。
-
-## Loop Runtime
-
-Loop Runtime 按 `Observe -> Decide -> Act -> Verify -> Record -> Next` 运转。每次 loop 决策都必须包含：
-
-- `trigger`：为什么启动当前闭环或改变方向
-- `feedback_gate`：用哪个反馈门判断当前步骤是否有效
-- `exit_condition`：什么条件下推进、换路、阻塞、报告或刷新上下文
-
-当前实现包含 decision tree 路径选择、节奏分类、artifact/tool/scope gates、失败重试、quick card 刷新、JSONL decision log，以及 executor adapter 层。进入红队模式后，需要在 config.toml 中显式设置 `mode = "active"` / `"auto"` / `"assisted"` 才会进入 active executor；无配置时默认 `plan-only`（只规划不执行）。真实工具执行必须通过 Tool Registry、Scope Gate、Execution Gate 和已注册 Executor adapter。
-
 ## 自动化工具策略
 
 自动化层不会把工具写死为唯一工具池。每次规划工具调用前，先读取用户本地可用 MCP/工具清单，再根据当前任务推导所需能力：
@@ -335,7 +295,7 @@ python scripts/validate.py
 
 ### 参考项目
 
-方法层、路由层和 skill pack 结构借鉴自：
+越狱、方法层、路由层和 skill pack 结构借鉴自：
 
 - [qiushi-skill](https://github.com/qiushi-L/qiushi-skill)
 - [yaklang/hack-skills](https://github.com/yaklang/hack-skills)
