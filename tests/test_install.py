@@ -81,11 +81,8 @@ def _run_hook_script_bytes(script: Path, payload: dict, env: dict[str, str]) -> 
     )
 
 
-def test_deployment_source_preflight_reports_missing_launcher() -> None:
-    with pytest.raises(install.InstallPreflightError) as exc_info:
-        install.preflight_deployment_sources(REPO_ROOT)
-
-    assert str(REPO_ROOT / "codex" / "launcher.py") in str(exc_info.value)
+def test_deployment_source_preflight_accepts_repository() -> None:
+    install.preflight_deployment_sources(REPO_ROOT)
 
 
 def test_deployment_source_preflight_reports_skill_root_with_wrong_type(tmp_path: Path) -> None:
@@ -1457,7 +1454,10 @@ def test_project_home_install_writes_under_dot_dirs(tmp_path: Path) -> None:
     )
 
     assert (project / ".codex" / "config.toml").exists()
-    assert (project / ".codex" / "instruction.ctf.md").exists()
+    assert (project / ".codex" / "redteam-mode" / "system-instructions.md").is_file()
+    assert (project / ".codex" / "redteam-mode" / "launcher.py").is_file()
+    assert (project / ".codex" / "redteam-mode" / "codex-redteam.cmd").is_file()
+    assert (project / ".codex" / "redteam-mode" / "codex-redteam").is_file()
     assert (project / "AGENTS.md").exists()
     assert not (project / ".codex" / "AGENTS.md").exists()
     assert (project / ".agents" / "skills" / "redteam-cve-validation" / "SKILL.md").exists()
@@ -1689,7 +1689,7 @@ def test_uninstall_external_agents_home_requires_original_scope(tmp_path: Path) 
     )
     manifest = codex_home / "redteam-install-manifest.json"
     manifest_before = manifest.read_bytes()
-    managed = codex_home / "instruction.ctf.md"
+    managed = codex_home / "redteam-mode" / "system-instructions.md"
     skill = custom_agents / "skills" / "redteam-cve-validation" / "SKILL.md"
 
     result = subprocess.run(
@@ -1747,7 +1747,7 @@ def test_upgrade_external_agents_home_requires_original_scope(tmp_path: Path) ->
     )
     manifest = codex_home / "redteam-install-manifest.json"
     manifest_before = manifest.read_bytes()
-    managed = codex_home / "instruction.ctf.md"
+    managed = codex_home / "redteam-mode" / "system-instructions.md"
     old_skill = original_agents / "skills" / "redteam-cve-validation" / "SKILL.md"
 
     result = subprocess.run(
