@@ -31,6 +31,7 @@ REQUIRED_CODEX_FILES = [
     "redteam-mode/codex-redteam",
     "hooks/session-start-context.py",
     "hooks/hook-security-context-hook.py",
+    "hooks/stop-refusal-hook.py",
     "hooks/redteam_state.py",
     "hooks/core/emitter.py",
     "hooks/core/phase_detector.py",
@@ -304,7 +305,18 @@ def validate_install(codex_home: Path, manifest_override: Path | None = None) ->
     messages.append("")
 
     messages.append("Required files:")
-    for rel in REQUIRED_CODEX_FILES:
+    required_files = REQUIRED_CODEX_FILES
+    if source_tree_mode:
+        installed_launchers = {
+            "redteam-mode/launcher.py",
+            "redteam-mode/codex-redteam.cmd",
+            "redteam-mode/codex-redteam",
+        }
+        required_files = [
+            "launcher.py",
+            *[rel for rel in REQUIRED_CODEX_FILES if rel not in installed_launchers],
+        ]
+    for rel in required_files:
         ok, msg = check_file(codex_root, rel)
         messages.append(msg)
         if not ok:

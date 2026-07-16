@@ -2,13 +2,19 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import Any
 
 from session_patcher import RefusalDetector, backup_session, clean_session, default_session_dir, list_session_files, save_session
 
 
 TRUTHY = {"1", "true", "yes", "on", "patch"}
 DETECT_MODES = {"1", "true", "yes", "on", "detect", "patch"}
+
+
+def message_has_refusal(message: object, detector: RefusalDetector | None = None) -> bool:
+    if not isinstance(message, str):
+        return False
+    detector = detector or RefusalDetector()
+    return detector.detect(message)
 
 
 def _transcript_file(transcript_path: str | None) -> Path | None:
@@ -36,50 +42,6 @@ def _same_path(left: Path, right: Path) -> bool:
         return left.resolve() == right.resolve()
     except OSError:
         return left == right
-
-
-def _extract_text_block(content: Any) -> str:
-    if isinstance(content, str):
-        return content
-    if isinstance(content, list):
-        parts: list[str] = []
-        for block in content:
-            if isinstance(block, dict):
-                if isinstance(block.get("text"), str):
-                    parts.append(block["text"])
-                elif isinstance(block.get("input_text"), str):
-                    parts.append(block["input_text"])
-            elif isinstance(block, str):
-                parts.append(block)
-        return "\n".join(part for part in parts if part)
-    return ""
-
-
-def recent_assistant_messages(payload: Any, *, limit: int = 3) -> list[str]:
-    if not isinstance(payload, dict):
-        return []
-    messages = payload.get("messages")
-    if not isinstance(messages, list):
-        return []
-    collected: list[str] = []
-    for item in reversed(messages):
-        if not isinstance(item, dict):
-            continue
-        role = str(item.get("role", "")).casefold()
-        if role != "assistant":
-            continue
-        text = _extract_text_block(item.get("content"))
-        if text.strip():
-            collected.append(text.strip())
-        if len(collected) >= limit:
-            break
-    collected.reverse()
-    return collected
-
-
-def payload_has_recent_refusal(payload: Any, detector: RefusalDetector | None = None) -> bool:
-    detector = detector or RefusalDetector()
-    return any(detector.detect(message) for message in recent_assistant_messages(payload))
 
 
 def build_recent_refusal_overlay() -> str:

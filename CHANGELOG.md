@@ -11,6 +11,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Added an App-compatible system-layer profile catalog. A static `model_instructions_file` now contains all configured GPT-5.x profiles plus a strict router, while every new conversation emits selector-only model metadata from `SessionStart`.
 - Added cross-platform `codex-redteam` launchers that detect the model before a new Codex process starts, generate a model-specific system instructions file, and pass it through a process-local `model_instructions_file` override.
 - Added independent per-session system files so concurrent GPT-5.5 and GPT-5.6 sessions do not overwrite each other's system prompt; launchers remove their temporary profile after Codex exits.
+- Added a `Stop` hook that records refusal detection from `last_assistant_message` and injects a one-time recovery overlay on the next active red-team prompt.
 
 ## [1.3.0] - 2026-07-14
 

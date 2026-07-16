@@ -173,7 +173,7 @@ python scripts/install.py   # second run: cleanup → fresh deploy → same stat
 enable red team mode
 ```
 
-Submit mode commands as a separate prompt. Enabling `redteam-light` or `redteam-full` injects the shared prepoison and `Reverse.md` supplemental context once; each subsequent task prompt is routed independently through `phase -> router -> pack -> leaf`. Active red-team sessions inject the same supplemental context again on `resume` or `compact`.
+Submit mode and OPSEC commands as a separate prompt containing only the command; leading and trailing whitespace is allowed. Quoted commands, negations, code examples, command suffixes, and prompts containing multiple commands do not change session state. Enabling `redteam-light` or `redteam-full` injects the shared prepoison and `Reverse.md` supplemental context once; each subsequent task prompt is routed independently through `phase -> router -> pack -> leaf`. Active red-team sessions inject the same supplemental context again on `resume` or `compact`.
 
 ### Disable Red Team Mode
 
@@ -202,15 +202,40 @@ The installer resolves the model in this order: `--model` → `CODEX_MODEL` → 
 2. `instruction.ctf.md`
 3. Model-routing rules and every configured `Jailbreak.gpt-5.x.md`
 
-The installed `config.toml` points `model_instructions_file` to `./redteam-mode/system-instructions.md`. That system file contains the base instructions, model-routing rules, and every configured GPT-5.x profile. Every new conversation's `SessionStart` hook reports only the current model/profile metadata; the system-layer router activates exactly the matching section and treats all other profile sections as inert.
+The installed `config.toml` points `model_instructions_file` to `./redteam-mode/system-instructions.md`. That system file contains the base instructions, model-routing rules, and every configured GPT-5.x profile. `SessionStart` supplies an initial session-fallback selector, while every accepted `UserPromptSubmit` supplies one authoritative current-turn selector derived from the latest Hook `model` field. The current-turn selector invalidates historical selectors, activates exactly one matching system profile, and leaves every other profile inert.
 
 #### Codex App
 
-After installation, open Codex App normally. When a new conversation selects GPT-5.5 or GPT-5.6 in the App, the static `model_instructions_file` loads the shared system router and `SessionStart` metadata selects the matching profile. After first install or a hook-content update, trust this `SessionStart` hook in Codex's hook manager. Start a new conversation when changing models; an existing conversation retains its startup system profile.
+After installation, open Codex App normally. The static `model_instructions_file` loads the shared system router; `SessionStart` initializes the profile and each `UserPromptSubmit` refreshes it from the active model. An in-session model change takes effect on the next submitted prompt without a dedicated `/model` Hook. After first install or a hook-content update, trust the installed context hooks in Codex's hook manager.
 
 #### Codex CLI
 
-Ordinary `codex` sessions also use the system router. The installer additionally deploys `redteam-mode/codex-redteam.cmd` and `redteam-mode/codex-redteam`. Before starting Codex, these launchers detect the model from `--model`, `-m`, or `-c model=...`, then `CODEX_MODEL` or `config.toml`, and load only the matching profile through a process-local `model_instructions_file` override. Each CLI session receives an independent `system-instructions.Jailbreak.gpt-5.x.SESSION.md`, removed after the process exits.
+Ordinary `codex` sessions also use the system router. The installer additionally deploys the optional `redteam-mode/codex-redteam.cmd` and `redteam-mode/codex-redteam` wrappers. The wrapper requires an explicit `--model`, `-m`, or `-c model=...`, rejects conflicting model declarations, and loads only the matching profile through a process-local `model_instructions_file` override. Temporary files live under `redteam-mode/state/system_instructions/` and are removed after normal process exit. The launched process is locked to the selected profile family: compatible variants such as `gpt-5.6-sol` and `gpt-5.6-codex` are allowed, while the next prompt after switching to another profile family is blocked with a bilingual remediation message.
+
+##### Optional Launcher Usage
+
+Use the installed wrapper rather than invoking `launcher.py` directly:
+
+- Global or custom Codex Home: `%CODEX_HOME%\redteam-mode\codex-redteam.cmd` on Windows, or `$CODEX_HOME/redteam-mode/codex-redteam` on macOS/Linux. When `CODEX_HOME` is unset, use `%USERPROFILE%\.codex` or `~/.codex`.
+- Project-level install: `<project>\.codex\redteam-mode\codex-redteam.cmd` on Windows, or `<project>/.codex/redteam-mode/codex-redteam` on macOS/Linux.
+- Direct `python redteam-mode/launcher.py ...` execution is intended only for development and debugging.
+
+Specify the launch model with any one of the supported Codex forms. All unrelated Codex arguments are forwarded unchanged:
+
+```bash
+# Long model option
+$CODEX_HOME/redteam-mode/codex-redteam --model gpt-5.6-sol
+
+# Short model option plus other Codex arguments
+$CODEX_HOME/redteam-mode/codex-redteam -m gpt-5.6-codex --sandbox workspace-write
+
+# Config override form
+$CODEX_HOME/redteam-mode/codex-redteam -c model=gpt-5.6-sol --cd /path/to/project
+```
+
+The launcher requires an explicit, non-conflicting model value. It rejects missing or conflicting model declarations and caller-supplied `model_instructions_file` overrides because that setting is managed per process. It creates a single-profile temporary system-instructions file under `$CODEX_HOME/redteam-mode/state/system_instructions/`, passes it to the child Codex process, and deletes it after normal process exit.
+
+The selected process is profile-family locked. Model variants matched by the same configured pattern, such as `gpt-5.6-sol` and `gpt-5.6-codex` under `gpt-5.6*`, remain compatible. If `/model` switches to a different profile family, the next `UserPromptSubmit` is blocked because the process system layer cannot be replaced safely; switch back to the original family or restart through the launcher with the new model.
 
 Override the default mapping in `config.toml`:
 
@@ -222,7 +247,7 @@ Override the default mapping in `config.toml`:
 default = "Jailbreak.default.md"
 ```
 
-Profile files live under `$CODEX_HOME/prompts/`. Model keys support glob patterns; an unmatched model or missing specialized file falls back to `default`. App and ordinary CLI sessions use the system catalog plus `SessionStart` metadata; the `codex-redteam` CLI launcher selects one profile before process startup. Both approaches use a new conversation as the model-switch boundary.
+Profile files live under `$CODEX_HOME/prompts/`. Model keys support glob patterns; an unmatched model or missing specialized file falls back to `default`. App and ordinary CLI sessions use the static system catalog plus per-turn Hook selectors and support model-family changes on the next prompt. The optional `codex-redteam` launcher selects one profile before process startup and requires a restart to use a different profile family.
 
 ## Automation Tool Policy
 

@@ -1,6 +1,6 @@
 from .doctrine import build_route_envelope
 from .emitter import emit_hook_json
-from .model_prompt_profiles import ModelPromptProfile, extract_model, extract_model_from_transcript, resolve_model_prompt_profile
+from .model_prompt_profiles import ModelPromptProfile, extract_model, is_pinned_model_compatible, resolve_model_prompt_profile
 from .phase_detector import detect_phase, detect_phase_rule_based
 from .prompt_parser import (
     decode_stdin,

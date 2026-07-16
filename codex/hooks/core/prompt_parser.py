@@ -1,8 +1,7 @@
 from __future__ import annotations
 
-import json
 import re
-from typing import Any, Optional
+from typing import Optional
 
 ENABLE_PATTERNS = [
     (r"/redteam\s+full\b", "redteam-full"),
@@ -25,21 +24,6 @@ OPSEC_PATTERNS = [
     (r"/opsec\s+balanced\b", "balanced"),
 ]
 
-SESSION_ID_KEYS = (
-    "session_id",
-    "sessionId",
-    "thread_id",
-    "threadId",
-    "conversation_id",
-    "conversationId",
-    "chat_id",
-    "chatId",
-    "id",
-)
-TRANSCRIPT_PATH_KEYS = (
-    "transcript_path",
-    "transcriptPath",
-)
 SESSION_START_SOURCES = {"startup", "resume", "clear", "compact"}
 
 
@@ -54,100 +38,32 @@ def decode_stdin(data: bytes) -> str:
     return data.decode("utf-8", "replace")
 
 
-def load_payload(raw: str) -> Any:
-    return json.loads(raw)
-
-
-def _extract_text_block(content: Any) -> str:
-    if isinstance(content, str):
-        return content
-    if isinstance(content, list):
-        parts: list[str] = []
-        for block in content:
-            if isinstance(block, dict) and isinstance(block.get("text"), str):
-                parts.append(block["text"])
-            elif isinstance(block, str):
-                parts.append(block)
-        return "\n".join(parts)
-    return ""
-
-
-def extract_prompt(payload: Any) -> str:
-    if isinstance(payload, str):
-        return payload
+def extract_prompt(payload: object) -> str:
     if not isinstance(payload, dict):
         return ""
-
-    for key in ("prompt", "input", "text", "message", "user_prompt"):
-        val = payload.get(key)
-        if isinstance(val, str):
-            return val
-
-    messages = payload.get("messages")
-    if isinstance(messages, list):
-        for item in reversed(messages):
-            if not isinstance(item, dict):
-                continue
-            role = str(item.get("role", "")).lower()
-            if role and role != "user":
-                continue
-            text = _extract_text_block(item.get("content"))
-            if text.strip():
-                return text
-        for item in reversed(messages):
-            if not isinstance(item, dict):
-                continue
-            text = _extract_text_block(item.get("content"))
-            if "role" in item:
-                continue
-            if text.strip():
-                return text
-    return ""
+    value = payload.get("prompt")
+    return value if isinstance(value, str) else ""
 
 
-def extract_session_id(payload: Any) -> Optional[str]:
-    if isinstance(payload, str):
+def extract_session_id(payload: object) -> Optional[str]:
+    if not isinstance(payload, dict):
         return None
-    if isinstance(payload, dict):
-        for key in SESSION_ID_KEYS:
-            value = payload.get(key)
-            if isinstance(value, str) and value.strip():
-                return value.strip()
-        for key in ("context", "session", "thread", "conversation", "metadata", "_meta", "meta"):
-            nested = payload.get(key)
-            found = extract_session_id(nested)
-            if found:
-                return found
-    if isinstance(payload, list):
-        for item in payload:
-            found = extract_session_id(item)
-            if found:
-                return found
-    return None
-
-
-def extract_transcript_path(payload: Any) -> Optional[str]:
-    if isinstance(payload, str):
+    value = payload.get("session_id")
+    if not isinstance(value, str) or not value.strip():
         return None
-    if isinstance(payload, dict):
-        for key in TRANSCRIPT_PATH_KEYS:
-            value = payload.get(key)
-            if isinstance(value, str) and value.strip():
-                return value.strip()
-        for key in ("context", "session", "thread", "conversation", "metadata", "_meta", "meta"):
-            nested = payload.get(key)
-            found = extract_transcript_path(nested)
-            if found:
-                return found
-    if isinstance(payload, list):
-        for item in payload:
-            found = extract_transcript_path(item)
-            if found:
-                return found
-    return None
+    return value.strip()
 
 
-def extract_session_start_source(payload: Any) -> str:
+def extract_transcript_path(payload: object) -> Optional[str]:
+    if not isinstance(payload, dict):
+        return None
+    value = payload.get("transcript_path")
+    if not isinstance(value, str) or not value.strip():
+        return None
+    return value
+
+
+def extract_session_start_source(payload: object) -> str:
     if not isinstance(payload, dict):
         return ""
     value = payload.get("source")
@@ -158,17 +74,19 @@ def extract_session_start_source(payload: Any) -> str:
 
 
 def parse_mode_command(prompt: str) -> Optional[str]:
+    candidate = prompt.strip()
     for pat, mode in ENABLE_PATTERNS:
-        if re.search(pat, prompt, re.I):
+        if re.fullmatch(pat, candidate, re.I):
             return mode
     for pat in DISABLE_PATTERNS:
-        if re.search(pat, prompt, re.I):
+        if re.fullmatch(pat, candidate, re.I):
             return "normal"
     return None
 
 
 def parse_opsec_command(prompt: str) -> Optional[str]:
+    candidate = prompt.strip()
     for pat, level in OPSEC_PATTERNS:
-        if re.search(pat, prompt, re.I):
+        if re.fullmatch(pat, candidate, re.I):
             return level
     return None

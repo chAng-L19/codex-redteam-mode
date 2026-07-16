@@ -59,6 +59,8 @@ class RedTeamState:
     last_reason_code: str = ""
     last_changed: str = ""
     session_id: str = ""
+    pending_refusal_overlay: bool = False
+    last_refusal_turn_id: str = ""
     evidence_artifacts: list = field(default_factory=list)
     pivot_count: int = 0
     # --- P3b: automation loop feedback fields ---
@@ -97,6 +99,8 @@ class RedTeamState:
             last_reason_code=self.last_reason_code or "",
             last_changed=self.last_changed or now_iso(),
             session_id=self.session_id or "",
+            pending_refusal_overlay=bool(self.pending_refusal_overlay),
+            last_refusal_turn_id=self.last_refusal_turn_id or "",
             evidence_artifacts=list(self.evidence_artifacts) if isinstance(self.evidence_artifacts, list) else [],
             pivot_count=max(0, _safe_int(self.pivot_count)),
             # P3b: automation loop feedback
@@ -145,7 +149,7 @@ def _safe_session_key(session_id: str | None) -> str:
     return safe[:120]
 
 
-def state_path(session_id: str | None = None) -> Path:
+def state_path(session_id: str) -> Path:
     return state_dir() / f"{_safe_session_key(session_id)}.json"
 
 

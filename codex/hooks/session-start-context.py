@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import json
+import os
 import sys
 from pathlib import Path
 
@@ -13,25 +15,26 @@ for candidate in (HOOKS_DIR, CODEX_DIR):
 
 from core import build_prompt_chain_notice, build_redteam_mode_overlay, emit_hook_json, extract_session_id, extract_session_start_source, extract_transcript_path, load_runtime_state, reset_runtime_state, resolve_model_prompt_profile, save_runtime_state
 from core.context_prepoison import build_prepoisoned_context
-from core.prompt_parser import decode_stdin, load_payload
+from core.prompt_parser import decode_stdin
 from core.refusal_backstop import session_start_backstop_messages
 
 
 def main() -> None:
     raw = decode_stdin(sys.stdin.buffer.read())
-    session_id = None
-    transcript_path = None
-    source = ""
-    payload = {}
-    if raw.strip():
-        try:
-            payload = load_payload(raw)
-            session_id = extract_session_id(payload)
-            transcript_path = extract_transcript_path(payload)
-            source = extract_session_start_source(payload)
-        except Exception:
-            session_id = None
-            payload = {}
+    if not raw.strip():
+        return
+    try:
+        payload = json.loads(raw)
+    except Exception:
+        return
+    if not isinstance(payload, dict):
+        return
+
+    session_id = extract_session_id(payload)
+    if not session_id:
+        return
+    transcript_path = extract_transcript_path(payload)
+    source = extract_session_start_source(payload)
 
     state = load_runtime_state(session_id=session_id) if source in {"resume", "compact"} else reset_runtime_state(session_id=session_id)
     if state.mode == "normal":
@@ -50,11 +53,12 @@ def main() -> None:
     if notice:
         context = f"{context}\n{notice}"
 
-    profile = resolve_model_prompt_profile(CODEX_DIR, payload=payload, transcript_path=transcript_path)
+    profile = resolve_model_prompt_profile(CODEX_DIR, payload=payload)
     state.active_model = profile.model
     state.active_prompt_profile = profile.profile
     save_runtime_state(state, session_id=session_id)
-    model_overlay = profile.render()
+    catalog = "single-profile" if os.environ.get("CODEX_REDTEAM_PROFILE_MODE", "").casefold() == "single" else "static"
+    model_overlay = profile.render(scope="session-fallback", catalog=catalog)
     if model_overlay:
         context = f"{context}\n{model_overlay}"
 
