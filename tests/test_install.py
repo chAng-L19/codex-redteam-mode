@@ -957,29 +957,91 @@ def test_installed_hook_commands_support_windows_shell_metacharacters(tmp_path: 
     assert str(codex_home) not in prompt_hook["commandWindows"]
 
     session_id = "space-path-session"
+    # shell=False matches how Codex CLI directly invokes commandWindows;
+    # the installer now wraps the hook in cmd.exe /d /c to suppress AutoRun output.
     started = subprocess.run(
         session_hook["commandWindows"],
         input=json.dumps({"session_id": session_id, "source": "startup"}),
         text=True,
-        shell=True,
+        shell=False,
         capture_output=True,
         env=env,
         check=False,
     )
     assert started.returncode == 0, started.stderr
-    assert "Default is normal" in json.loads(started.stdout)["hookSpecificOutput"]["additionalContext"]
+    # stdout must be clean JSON: no "Active code page" contamination from cmd.exe
+    assert "Active code page:" not in started.stdout
+    started_payload = json.loads(started.stdout)
+    assert "Default is normal" in started_payload["hookSpecificOutput"]["additionalContext"]
 
     enabled = subprocess.run(
         prompt_hook["commandWindows"],
         input=json.dumps({"session_id": session_id, "prompt": "/redteam light"}),
         text=True,
-        shell=True,
+        shell=False,
         capture_output=True,
         env=env,
         check=False,
     )
     assert enabled.returncode == 0, enabled.stderr
-    assert "Red-team mode enabled" in json.loads(enabled.stdout)["hookSpecificOutput"]["additionalContext"]
+    assert "Active code page:" not in enabled.stdout
+    enabled_payload = json.loads(enabled.stdout)
+    assert "Red-team mode enabled" in enabled_payload["hookSpecificOutput"]["additionalContext"]
+
+
+@pytest.mark.skipif(os.name != "nt", reason="codepage pollution is a Windows cmd.exe issue")
+def test_installed_hook_command_windows_stdout_is_clean_json(tmp_path: Path) -> None:
+    """Regression: commandWindows output must be parseable JSON without stripping.
+
+    Codex CLI invokes commandWindows through cmd.exe.  Some Windows environments
+    emit "Active code page: 65001" before the hook JSON, causing JSONDecodeError
+    in strict consumers.  The installer must suppress that output.
+    """
+    codex_home = tmp_path / "codex-clean-stdout"
+    agents_home = tmp_path / "agents-clean-stdout"
+    env = {
+        **os.environ,
+        "CODEX_HOME": str(codex_home),
+        "NO_COLOR": "1",
+    }
+
+    subprocess.run(
+        [
+            sys.executable,
+            str(INSTALL_PATH),
+            "--codex-home",
+            str(codex_home),
+            "--agents-home",
+            str(agents_home),
+        ],
+        check=True,
+        env=env,
+        stdout=subprocess.DEVNULL,
+    )
+
+    hooks_payload = json.loads((codex_home / "hooks.json").read_text(encoding="utf-8"))
+    session_hook = hooks_payload["hooks"]["SessionStart"][0]["hooks"][0]
+
+    # The command must be self-contained so it works whether the caller uses
+    # shell=True or directly executes the first token (cmd.exe).
+    first_token = session_hook["commandWindows"].split(None, 1)[0]
+    assert Path(first_token).name.lower() == "cmd.exe"
+
+    result = subprocess.run(
+        session_hook["commandWindows"],
+        input=json.dumps({"session_id": "clean-stdout", "source": "startup"}),
+        text=True,
+        shell=False,
+        capture_output=True,
+        env=env,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    # Strict parse: no leading/trailing whitespace strip, no tolerant decoding.
+    payload = json.loads(result.stdout)
+    assert "Default is normal" in payload["hookSpecificOutput"]["additionalContext"]
+    # And explicitly forbid the known contaminant.
+    assert "Active code page:" not in result.stdout
 
 
 @pytest.mark.skipif(os.name == "nt", reason="POSIX hook command is executed by /bin/sh")

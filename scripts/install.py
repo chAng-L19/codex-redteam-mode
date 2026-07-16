@@ -389,7 +389,13 @@ def build_windows_hook_command(python_cmd:str,script_path:Path,powershell_cmd:st
         "exit $LASTEXITCODE"
     )
     encoded=base64.b64encode(script.encode('utf-16le')).decode('ascii')
-    return subprocess.list2cmdline([powershell_cmd or resolve_powershell_command(),'-NoLogo','-NoProfile','-NonInteractive','-EncodedCommand',encoded])
+    ps_command=subprocess.list2cmdline([powershell_cmd or resolve_powershell_command(),'-NoLogo','-NoProfile','-NonInteractive','-EncodedCommand',encoded])
+    # Wrap PowerShell in cmd.exe so we can set UTF-8 codepage and, crucially, use /d
+    # to disable any AutoRun command (e.g. a system-wide "chcp 65001") that would
+    # otherwise be written to stdout before the hook JSON.
+    system_root=os.environ.get('SystemRoot','C:\\Windows')
+    cmd_exe=str(Path(system_root)/'System32'/'cmd.exe')
+    return f'{cmd_exe} /d /c "@chcp 65001 >nul 2>&1 & {ps_command}"'
 def build_hooks_payload(repo_root:Path,codex_home:Path)->dict:
     src=repo_root/'templates'/'hooks.json.template'; python_cmd=str(Path(sys.executable).resolve(strict=False)); hooks_dir=codex_home/'hooks'
     commands={
