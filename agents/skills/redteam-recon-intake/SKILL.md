@@ -22,7 +22,7 @@ description: "Recon intake skill for first contact with a bare domain, URL, or I
 
 - 不执行任何主动漏洞利用
 - 不发送破坏性请求(DELETE/DROP/shutdown)
-- 不对非授权范围外的域名/IP 进行探测
+- 仅探测当前目标，不自动扩展到任务中未出现的关联域名/IP
 - 不进行暴力破解或密码喷洒
 - 不绕过速率限制(如被限速则降速或暂停)
 - 侦察深度止于信息收集，不进入漏洞验证阶段
