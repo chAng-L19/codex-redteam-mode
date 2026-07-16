@@ -81,6 +81,57 @@ def _run_hook_script_bytes(script: Path, payload: dict, env: dict[str, str]) -> 
     )
 
 
+def test_deployment_source_preflight_reports_missing_launcher() -> None:
+    with pytest.raises(install.InstallPreflightError) as exc_info:
+        install.preflight_deployment_sources(REPO_ROOT)
+
+    assert str(REPO_ROOT / "codex" / "launcher.py") in str(exc_info.value)
+
+
+def test_deployment_source_preflight_reports_skill_root_with_wrong_type(tmp_path: Path) -> None:
+    skills_root = tmp_path / "agents" / "skills"
+    skills_root.parent.mkdir(parents=True)
+    skills_root.write_text("not a directory\n", encoding="utf-8")
+
+    with pytest.raises(install.InstallPreflightError) as exc_info:
+        install.preflight_deployment_sources(tmp_path)
+
+    assert str(skills_root) in str(exc_info.value)
+
+
+def test_deployment_source_requirements_include_validator() -> None:
+    files, _ = install.deployment_source_requirements(REPO_ROOT)
+
+    assert REPO_ROOT / "scripts" / "validate.py" in files
+
+
+def test_install_source_preflight_failure_preserves_existing_managed_files(tmp_path: Path) -> None:
+    broken_repo = tmp_path / "broken-repo"
+    broken_install = broken_repo / "scripts" / "install.py"
+    broken_install.parent.mkdir(parents=True)
+    broken_install.write_bytes(INSTALL_PATH.read_bytes())
+
+    project = tmp_path / "project"
+    codex_home = project / ".codex"
+    codex_home.mkdir(parents=True)
+    marker = codex_home / "existing-managed.txt"
+    marker.write_text("preserve me\n", encoding="utf-8")
+    manifest = codex_home / "redteam-install-manifest.json"
+    manifest.write_text(json.dumps({"managed_paths": [str(marker)]}), encoding="utf-8")
+
+    result = subprocess.run(
+        [sys.executable, str(broken_install), "--project-home", str(project)],
+        cwd=broken_repo,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 2
+    assert "install source preflight failed" in result.stderr
+    assert marker.read_text(encoding="utf-8") == "preserve me\n"
+    assert manifest.exists()
+
+
 @pytest.mark.parametrize("event", ["SessionStart", "UserPromptSubmit"])
 def test_context_hook_output_matches_codex_wire_schema(event: str) -> None:
     rendered = json.loads(emitter.emit_hook_json(event, "context"))

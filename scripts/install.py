@@ -22,6 +22,7 @@ MODEL_CATALOG_START='<!-- codex-redteam-model-profiles:start -->'; MODEL_CATALOG
 DEFAULT_MODEL_PROFILE_FILES={'gpt-5.6*':'Jailbreak.gpt-5.6.md','gpt-5.5*':'Jailbreak.gpt-5.5.md','gpt-5.4*':'Jailbreak.gpt-5.4.md','default':'Jailbreak.default.md'}
 _MISSING=object()
 class ManifestValidationError(ValueError): pass
+class InstallPreflightError(RuntimeError): pass
 def configure_stdio()->None:
     for stream in (sys.stdout,sys.stderr):
         reconfigure=getattr(stream,'reconfigure',None)
@@ -478,7 +479,39 @@ def run_validate(repo_root:Path,codex_home:Path,dry_run:bool,manifest_candidate:
     if manifest_candidate is not None: command.extend(['--manifest',str(manifest_candidate)])
     subprocess.run(command,check=True)
 def repo_skill_dirs(repo_root:Path)->list[Path]:
-    skills_root=repo_root/'agents'/'skills'; return sorted(path for path in skills_root.iterdir() if path.is_dir()) if skills_root.exists() else []
+    skills_root=repo_root/'agents'/'skills'; return sorted(path for path in skills_root.iterdir() if path.is_dir()) if skills_root.is_dir() else []
+def deployment_source_requirements(repo_root:Path)->tuple[list[Path],list[Path]]:
+    prompts_dir=repo_root/'codex'/'prompts'
+    files=[
+        repo_root/'config.toml',
+        repo_root/'instruction.ctf.md',
+        repo_root/'scripts'/'validate.py',
+        repo_root/'templates'/'hooks.json.template',
+        repo_root/'codex'/'launcher.py',
+        repo_root/'codex'/'AGENTS.md',
+        repo_root/'codex'/'hooks'/'session-start-context.py',
+        repo_root/'codex'/'hooks'/'hook-security-context-hook.py',
+        repo_root/'codex'/'hooks'/'redteam_state.py',
+    ]
+    files.extend(prompts_dir/filename for filename in sorted(set(DEFAULT_MODEL_PROFILE_FILES.values())))
+    files.extend(skill_dir/'SKILL.md' for skill_dir in repo_skill_dirs(repo_root))
+    directories=[
+        repo_root/'agents'/'skills',
+        repo_root/'codex'/'hooks'/'core',
+        repo_root/'codex'/'router',
+        repo_root/'codex'/'orchestrator',
+        repo_root/'codex'/'automation',
+        repo_root/'codex'/'session_patcher',
+        prompts_dir,
+    ]
+    return files,directories
+def preflight_deployment_sources(repo_root:Path)->None:
+    files,directories=deployment_source_requirements(repo_root)
+    invalid=[path for path in files if not path.is_file()]
+    invalid.extend(path for path in directories if not path.is_dir())
+    if not invalid: return
+    details='\n'.join(f'  - {path}' for path in invalid)
+    raise InstallPreflightError(f'install source preflight failed:\n{details}')
 def managed_targets(repo_root:Path,codex_home:Path,agents_home:Path)->list[Path]:
     targets=[codex_home/'redteam-mode'/'system-instructions.md',codex_home/'redteam-mode'/'launcher.py',codex_home/'redteam-mode'/'codex-redteam.cmd',codex_home/'redteam-mode'/'codex-redteam',codex_home/'hooks'/'session-start-context.py',codex_home/'hooks'/'hook-security-context-hook.py',codex_home/'hooks'/'redteam_state.py',codex_home/'hooks'/'core',codex_home/'router',codex_home/'orchestrator',codex_home/'automation',codex_home/'session_patcher']
     targets.extend(agents_home/'skills'/skill_dir.name for skill_dir in repo_skill_dirs(repo_root)); return targets
@@ -639,12 +672,13 @@ def main()->None:
     info(f'log root: {log_root}')
     if args.agents_home and not args.enable_custom_skill_dirs and not args.uninstall:
         warn('custom --agents-home installs skill cards there, but runtime may prefer project or user defaults; use --enable-custom-skill-dirs to prioritize it')
-    current_targets=managed_targets(repo_root,codex_home,agents_home)
     if args.uninstall:
         uninstall(repo_root,codex_home,agents_home,agents_file,args.dry_run)
         info('runtime session state and memory are preserved after uninstall; possible locations:')
         for location in runtime_state_locations(): info(f'  {location}')
         good('uninstall complete'); return
+    preflight_deployment_sources(repo_root)
+    current_targets=managed_targets(repo_root,codex_home,agents_home)
     info(f"preflight config merge {repo_root/'config.toml'} -> {codex_home/'config.toml'}")
     previous_manifest=load_manifest_data(codex_home); pending_data=load_transaction_data(codex_home); ownership_data=pending_data.get('candidate_manifest') if pending_data else previous_manifest
     user_reference=original_model_instructions_reference(codex_home,ownership_data or {}); system_model,system_model_source=resolve_install_model(repo_root,codex_home,args.model,ownership_data.get('system_prompt') if ownership_data else None)
@@ -683,5 +717,5 @@ def main()->None:
 if __name__=='__main__':
     configure_stdio()
     try: main()
-    except ManifestValidationError as exc:
+    except (ManifestValidationError,InstallPreflightError) as exc:
         print(f'ERROR: {exc}',file=sys.stderr); raise SystemExit(2)
