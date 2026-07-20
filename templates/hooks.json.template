@@ -25,19 +25,6 @@
           }
         ]
       }
-    ],
-    "Stop": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "{{STOP_COMMAND}}",
-            "commandWindows": "{{STOP_COMMAND_WINDOWS}}",
-            "statusMessage": "Recording refusal backstop state",
-            "timeout": 15
-          }
-        ]
-      }
     ]
   }
 }

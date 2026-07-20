@@ -34,12 +34,22 @@ class EvidenceGraph:
         verifier: str,
         confidence: float,
     ) -> EvidenceNode:
-        existing = {node.evidence_id: node for node in self.store.evidence(run_id)}
+        stored_nodes = self.store.evidence(run_id)
+        existing = {node.evidence_id: node for node in stored_nodes}
         missing_parents = set(parent_ids) - set(existing)
         if missing_parents:
             raise ValueError(f"evidence_parent_missing:{sorted(missing_parents)}")
         payload = redact_sensitive(payload)
         digest = self.content_hash(payload)
+        for stored in stored_nodes:
+            if (
+                stored.action_id == action_id
+                and stored.artifact_type == artifact_type
+                and stored.tool == tool
+                and stored.content_hash == digest
+            ):
+                self._write_artifact(stored)
+                return stored
         identity = hashlib.sha256(f"{run_id}\0{action_id}\0{artifact_type}\0{tool}\0{digest}".encode("utf-8")).hexdigest()
         node = EvidenceNode(
             evidence_id=f"evidence-{identity[:32]}",
@@ -57,7 +67,7 @@ class EvidenceGraph:
         )
         self._write_artifact(node)
         self.store.save_evidence(node)
-        persisted = self.find_by_content(run_id, action_id, artifact_type, digest)
+        persisted = self.find_by_content(run_id, action_id, artifact_type, digest, tool=tool)
         return persisted or node
 
     def _write_artifact(self, node: EvidenceNode) -> Path:
@@ -103,9 +113,22 @@ class EvidenceGraph:
             valid.append(node)
         return tuple(valid)
 
-    def find_by_content(self, run_id: str, action_id: str, artifact_type: str, digest: str) -> EvidenceNode | None:
+    def find_by_content(
+        self,
+        run_id: str,
+        action_id: str,
+        artifact_type: str,
+        digest: str,
+        *,
+        tool: str = "",
+    ) -> EvidenceNode | None:
         for node in self.list(run_id):
-            if node.action_id == action_id and node.artifact_type == artifact_type and node.content_hash == digest:
+            if (
+                node.action_id == action_id
+                and node.artifact_type == artifact_type
+                and node.content_hash == digest
+                and (not tool or node.tool == tool)
+            ):
                 return node
         return None
 

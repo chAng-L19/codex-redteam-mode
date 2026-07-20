@@ -4,7 +4,6 @@ import importlib.util
 import inspect
 import json
 import os
-import shlex
 import subprocess
 import sys
 import tomllib
@@ -22,10 +21,6 @@ LAUNCHER_PATH = CODEX_PATH / "launcher.py"
 HOOKS_PATH = REPO_ROOT / "codex" / "hooks"
 SESSION_START_HOOK = HOOKS_PATH / "session-start-context.py"
 PROMPT_HOOK = HOOKS_PATH / "hook-security-context-hook.py"
-STOP_HOOK = HOOKS_PATH / "stop-refusal-hook.py"
-SYSTEM_PROMPT = (CODEX_PATH / "prompts" / "system-prompt.md").read_text(encoding="utf-8").strip()
-DO_SPECIAL_PROMPT = (CODEX_PATH / "prompts" / "do_special.md").read_text(encoding="utf-8").strip()
-REVERSE_PROMPT = (CODEX_PATH / "prompts" / "Reverse.md").read_text(encoding="utf-8").strip()
 
 spec = importlib.util.spec_from_file_location("install_script", INSTALL_PATH)
 install = importlib.util.module_from_spec(spec)
@@ -43,8 +38,7 @@ if str(HOOKS_PATH) not in sys.path:
     sys.path.insert(0, str(HOOKS_PATH))
 if str(CODEX_PATH) not in sys.path:
     sys.path.insert(0, str(CODEX_PATH))
-from core import controller, emitter, memory_store, model_prompt_profiles, prompt_parser, refusal_backstop, runtime_paths, skill_card, supplemental_prompts
-from session_patcher import patcher
+from core import controller, emitter, model_prompt_profiles, prompt_parser
 import redteam_state
 
 
@@ -228,11 +222,6 @@ def test_launcher_uses_state_directory_and_marks_the_child_process(
     notice = capsys.readouterr().err
     assert "锁定模型族" in notice
     assert "Locked model family" in notice
-    command = captured["command"]
-    assert isinstance(command, list)
-    rendered_command = subprocess.list2cmdline(command) if os.name == "nt" else shlex.join(command)
-    assert "Codex 启动命令 / Codex launch command:" in notice
-    assert rendered_command in notice
 
 
 def test_static_catalog_router_uses_the_current_turn_model_selector() -> None:
@@ -253,23 +242,6 @@ def test_source_tree_validation_uses_source_launcher_layout() -> None:
     ok, messages = validate.validate_install(REPO_ROOT)
 
     assert ok is True, "\n".join(messages)
-
-
-def _write_skill(skills_root: Path, name: str = "redteam-demo") -> Path:
-    skill_dir = skills_root / name
-    skill_dir.mkdir(parents=True)
-    skill_dir.joinpath("SKILL.md").write_text(
-        f"---\nname: {name}\ndescription: demo\n---\n\n# Demo\n",
-        encoding="utf-8",
-    )
-    return skill_dir
-
-
-def _write_session(path: Path, mtime: int) -> Path:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text('{"type":"event_msg","payload":{}}\n', encoding="utf-8")
-    os.utime(path, (mtime, mtime))
-    return path
 
 
 def _run_hook_script(script: Path, payload: object, env: dict[str, str]) -> subprocess.CompletedProcess[str]:
@@ -308,38 +280,19 @@ def test_context_hook_output_matches_codex_wire_schema(event: str) -> None:
 def test_installer_registers_all_hook_events(tmp_path: Path) -> None:
     payload = install.build_hooks_payload(REPO_ROOT, tmp_path / "codex-home")
 
-    assert set(payload["hooks"]) == {"SessionStart", "UserPromptSubmit", "Stop"}
-    stop_entry = payload["hooks"]["Stop"][0]
-    stop_hook = stop_entry["hooks"][0]
-    assert "matcher" not in stop_entry
-    assert "stop-refusal-hook.py" in stop_hook["command"]
-    assert "-EncodedCommand" in stop_hook["commandWindows"]
+    assert set(payload["hooks"]) == {"SessionStart", "UserPromptSubmit"}
+    assert "{{" not in json.dumps(payload)
 
 
-def test_installer_tracks_stop_hook_as_managed(tmp_path: Path) -> None:
+def test_installer_treats_removed_stop_hook_as_legacy_managed(tmp_path: Path) -> None:
     codex_home = tmp_path / "codex-home"
     agents_home = tmp_path / "agents-home"
 
     targets = install.managed_targets(REPO_ROOT, codex_home, agents_home)
 
-    assert codex_home / "hooks" / "stop-refusal-hook.py" in targets
+    assert codex_home / "hooks" / "stop-refusal-hook.py" not in targets
     assert install.is_managed_hook({"command": "python stop-refusal-hook.py"}) is True
-    assert "hooks/stop-refusal-hook.py" in validate.REQUIRED_CODEX_FILES
-
-
-def test_role_phase_is_used_only_inside_additional_context() -> None:
-    rendered = json.loads(
-        emitter.emit_hook_json(
-            "UserPromptSubmit",
-            "route context",
-            inject_role_overlay=True,
-            role_phase="web",
-        )
-    )
-
-    specific = rendered["hookSpecificOutput"]
-    assert set(specific) == {"hookEventName", "additionalContext"}
-    assert "Current phase: web" in specific["additionalContext"]
+    assert "hooks/stop-refusal-hook.py" not in validate.REQUIRED_CODEX_FILES
 
 
 def test_hook_json_is_ascii_safe_and_round_trips_unicode() -> None:
@@ -353,44 +306,50 @@ def test_hook_json_is_ascii_safe_and_round_trips_unicode() -> None:
 
 def test_hook_stdout_is_utf8_safe_under_gbk(tmp_path: Path) -> None:
     session_id = "gbk-session"
-    temp_dir = tmp_path / "temp"
     codex_home = tmp_path / "codex-home"
     env = {
         **os.environ,
         "CODEX_HOME": str(codex_home),
-        "TEMP": str(temp_dir),
-        "TMP": str(temp_dir),
         "PYTHONIOENCODING": "gbk",
         "CODEX_REDTEAM_AUTOMATION_MODE": "plan-only",
         "NO_COLOR": "1",
     }
-    transcript = tmp_path / "sessions" / "current.jsonl"
 
     started = _run_hook_script_bytes(
         SESSION_START_HOOK,
-        {"session_id": session_id, "transcript_path": str(transcript), "source": "startup"},
+        {"session_id": session_id, "source": "startup", "model": "gpt-5.6-codex"},
         env,
     )
     assert started.stdout.isascii()
     started_context = json.loads(started.stdout.decode("utf-8"))["hookSpecificOutput"]["additionalContext"]
     assert "Default is normal" in started_context
-    assert "预防性指令" not in started_context
+    assert "scope=session-fallback" in started_context
 
-    enabled = _run_hook_script_bytes(PROMPT_HOOK, {"session_id": session_id, "prompt": "/redteam light"}, env)
+    enabled = _run_hook_script_bytes(
+        PROMPT_HOOK,
+        {"session_id": session_id, "prompt": "/redteam light", "model": "gpt-5.6-codex"},
+        env,
+    )
+    assert enabled.stdout.isascii()
     enabled_context = json.loads(enabled.stdout.decode("utf-8"))["hookSpecificOutput"]["additionalContext"]
     assert "Red-team mode enabled (redteam-light)" in enabled_context
-    assert enabled_context.count("[prepoison:frame-lock]") == 1
-    assert REVERSE_PROMPT in enabled_context
-    assert "预防性指令" in enabled_context
+    assert "GoalContract -> WorkflowSpec -> ToolBroker -> EvidenceGraph -> TerminalJudge" in enabled_context
+    assert enabled_context.count("[model-prompt-profile]") == 1
+
     routed = _run_hook_script_bytes(
         PROMPT_HOOK,
-        {"session_id": session_id, "prompt": "检查登录接口的认证风险"},
+        {
+            "session_id": session_id,
+            "prompt": "\u68c0\u67e5\u767b\u5f55\u63a5\u53e3\u7684\u8ba4\u8bc1\u98ce\u9669",
+            "model": "gpt-5.6-codex",
+        },
         env,
     )
     assert routed.stdout.isascii()
     routed_context = json.loads(routed.stdout.decode("utf-8"))["hookSpecificOutput"]["additionalContext"]
-    assert "[mode:redteam-light]" in routed_context
-    assert "登录接口" in routed_context
+    assert "[workflow:web-api-assessment]" in routed_context
+    assert "[automation-mode:plan-only]" in routed_context
+    assert routed_context.count("[model-prompt-profile]") == 1
 
 
 @pytest.mark.parametrize(
@@ -434,21 +393,6 @@ def test_extract_prompt_uses_only_official_top_level_field(payload: object, expe
 )
 def test_extract_session_id_uses_only_official_top_level_field(payload: object, expected: str | None) -> None:
     assert prompt_parser.extract_session_id(payload) == expected
-
-
-@pytest.mark.parametrize(
-    ("payload", "expected"),
-    [
-        ({"transcript_path": "C:/tmp/session.jsonl"}, "C:/tmp/session.jsonl"),
-        ({"transcriptPath": "C:/tmp/alias.jsonl"}, None),
-        ({"session": {"transcript_path": "C:/tmp/nested.jsonl"}}, None),
-    ],
-)
-def test_extract_transcript_path_uses_only_official_top_level_field(
-    payload: object,
-    expected: str | None,
-) -> None:
-    assert prompt_parser.extract_transcript_path(payload) == expected
 
 
 @pytest.mark.parametrize(
@@ -699,140 +643,6 @@ def test_session_start_rejects_payload_without_official_session_id(tmp_path: Pat
     assert started.stdout == ""
 
 
-@pytest.mark.parametrize(
-    ("message", "expected"),
-    [
-        ("I cannot assist with that request.", True),
-        ("Need more evidence before confirming this issue.", False),
-        (None, False),
-        (123, False),
-    ],
-)
-def test_refusal_detection_accepts_only_stop_message_text(message: object, expected: bool) -> None:
-    assert refusal_backstop.message_has_refusal(message) is expected
-
-
-def test_stop_hook_records_and_next_prompt_consumes_refusal_overlay(tmp_path: Path) -> None:
-    session_id = "stop-refusal-session"
-    turn_id = "turn-refusal-1"
-    codex_home = tmp_path / "codex-home"
-    env = {
-        **os.environ,
-        "CODEX_HOME": str(codex_home),
-        "CODEX_REDTEAM_AUTOMATION_MODE": "plan-only",
-        "NO_COLOR": "1",
-    }
-    state_path = codex_home / "redteam-mode" / "state" / "sessions" / f"{session_id}.json"
-
-    _run_hook_script(
-        PROMPT_HOOK,
-        {"session_id": session_id, "model": "test-model", "prompt": "/redteam light"},
-        env,
-    )
-    stopped = _run_hook_script(
-        STOP_HOOK,
-        {
-            "session_id": session_id,
-            "turn_id": turn_id,
-            "stop_hook_active": False,
-            "last_assistant_message": "I cannot assist with that request.",
-        },
-        env,
-    )
-
-    assert json.loads(stopped.stdout) == {}
-    recorded = json.loads(state_path.read_text(encoding="utf-8"))
-    assert recorded["pending_refusal_overlay"] is True
-    assert recorded["last_refusal_turn_id"] == turn_id
-
-    submitted = _run_hook_script(
-        PROMPT_HOOK,
-        {"session_id": session_id, "model": "test-model", "prompt": "Review authentication controls"},
-        env,
-    )
-    context = json.loads(submitted.stdout)["hookSpecificOutput"]["additionalContext"]
-    assert "[backstop:recent-refusal-detected]" in context
-    consumed = json.loads(state_path.read_text(encoding="utf-8"))
-    assert consumed["pending_refusal_overlay"] is False
-    assert consumed["last_refusal_turn_id"] == turn_id
-    assert consumed["active_model"] == "test-model"
-
-    repeated = _run_hook_script(
-        STOP_HOOK,
-        {
-            "session_id": session_id,
-            "turn_id": turn_id,
-            "stop_hook_active": False,
-            "last_assistant_message": "I cannot assist with that request.",
-        },
-        env,
-    )
-    assert json.loads(repeated.stdout) == {}
-    assert json.loads(state_path.read_text(encoding="utf-8"))["pending_refusal_overlay"] is False
-
-    next_prompt = _run_hook_script(
-        PROMPT_HOOK,
-        {"session_id": session_id, "model": "test-model", "prompt": "Review authorization controls"},
-        env,
-    )
-    next_context = json.loads(next_prompt.stdout)["hookSpecificOutput"]["additionalContext"]
-    assert "[backstop:recent-refusal-detected]" not in next_context
-
-
-def test_stop_hook_ignores_active_continuation_and_invalid_messages(tmp_path: Path) -> None:
-    session_id = "stop-noop-session"
-    codex_home = tmp_path / "codex-home"
-    env = {**os.environ, "CODEX_HOME": str(codex_home), "NO_COLOR": "1"}
-    state_path = codex_home / "redteam-mode" / "state" / "sessions" / f"{session_id}.json"
-
-    _run_hook_script(PROMPT_HOOK, {"session_id": session_id, "prompt": "/redteam light"}, env)
-    for payload in (
-        {
-            "session_id": session_id,
-            "turn_id": "turn-active",
-            "stop_hook_active": True,
-            "last_assistant_message": "I cannot assist with that request.",
-        },
-        {
-            "session_id": session_id,
-            "turn_id": "turn-null",
-            "stop_hook_active": False,
-            "last_assistant_message": None,
-        },
-        {
-            "session_id": session_id,
-            "turn_id": "turn-missing-flag",
-            "last_assistant_message": "I cannot assist with that request.",
-        },
-    ):
-        stopped = _run_hook_script(STOP_HOOK, payload, env)
-        assert json.loads(stopped.stdout) == {}
-
-    state = json.loads(state_path.read_text(encoding="utf-8"))
-    assert state["pending_refusal_overlay"] is False
-    assert state["last_refusal_turn_id"] == ""
-
-
-def test_stop_hook_is_noop_in_normal_mode(tmp_path: Path) -> None:
-    session_id = "normal-stop-session"
-    codex_home = tmp_path / "codex-home"
-    env = {**os.environ, "CODEX_HOME": str(codex_home), "NO_COLOR": "1"}
-
-    stopped = _run_hook_script(
-        STOP_HOOK,
-        {
-            "session_id": session_id,
-            "turn_id": "normal-turn",
-            "stop_hook_active": False,
-            "last_assistant_message": "I cannot assist with that request.",
-        },
-        env,
-    )
-
-    assert json.loads(stopped.stdout) == {}
-    assert not (codex_home / "redteam-mode" / "state" / "sessions" / f"{session_id}.json").exists()
-
-
 def test_user_prompt_submit_does_not_guess_refusal_from_messages(tmp_path: Path) -> None:
     session_id = "messages-refusal-session"
     codex_home = tmp_path / "codex-home"
@@ -927,144 +737,131 @@ def test_opsec_command_mentions_are_not_commands(prompt: str) -> None:
 
 def test_session_start_preserves_mode_on_resume_and_compact(tmp_path: Path) -> None:
     session_id = "resume-session"
-    temp_dir = tmp_path / "temp"
     codex_home = tmp_path / "codex-home"
     env = {
         **os.environ,
         "CODEX_HOME": str(codex_home),
-        "TEMP": str(temp_dir),
-        "TMP": str(temp_dir),
         "CODEX_REDTEAM_AUTOMATION_MODE": "plan-only",
         "NO_COLOR": "1",
     }
-    transcript = tmp_path / "sessions" / "current.jsonl"
     state_path = codex_home / "redteam-mode" / "state" / "sessions" / f"{session_id}.json"
 
     _run_hook_script(
         SESSION_START_HOOK,
-        {"session_id": session_id, "transcript_path": str(transcript), "source": "startup"},
+        {"session_id": session_id, "source": "startup", "model": "gpt-5.6-codex"},
         env,
     )
-    _run_hook_script(PROMPT_HOOK, {"session_id": session_id, "prompt": "/redteam light"}, env)
+    _run_hook_script(
+        PROMPT_HOOK,
+        {"session_id": session_id, "prompt": "/redteam light", "model": "gpt-5.6-codex"},
+        env,
+    )
     assert json.loads(state_path.read_text(encoding="utf-8"))["mode"] == "redteam-light"
 
     for source in ("resume", "compact"):
         started = _run_hook_script(
             SESSION_START_HOOK,
-            {"session_id": session_id, "transcript_path": str(transcript), "source": source},
+            {"session_id": session_id, "source": source, "model": "gpt-5.6-codex"},
             env,
         )
         started_context = json.loads(started.stdout)["hookSpecificOutput"]["additionalContext"]
         assert "Session mode restored (redteam-light)" in started_context
-        assert SYSTEM_PROMPT in started_context
-        assert DO_SPECIAL_PROMPT in started_context
-        assert started_context.count("[prepoison:frame-lock]") == 1
-        assert REVERSE_PROMPT in started_context
+        assert "[redteam-runtime]" in started_context
+        assert "scope=session-fallback" in started_context
         assert json.loads(state_path.read_text(encoding="utf-8"))["mode"] == "redteam-light"
 
         routed = _run_hook_script(
             PROMPT_HOOK,
-            {"session_id": session_id, "prompt": "Review authentication bypass risk in the login endpoint"},
+            {
+                "session_id": session_id,
+                "prompt": "Review authentication bypass risk in the login endpoint",
+                "model": "gpt-5.6-codex",
+            },
             env,
         )
         routed_context = json.loads(routed.stdout)["hookSpecificOutput"]["additionalContext"]
-        assert "[mode:redteam-light]" in routed_context
-        assert "[router:" in routed_context
-        assert REVERSE_PROMPT not in routed_context
+        assert "[operation-status:planned]" in routed_context
+        assert "[automation-mode:plan-only]" in routed_context
+        assert "scope=current-turn" in routed_context
 
     cleared = _run_hook_script(
         SESSION_START_HOOK,
-        {"session_id": session_id, "transcript_path": str(transcript), "source": "clear"},
+        {"session_id": session_id, "source": "clear", "model": "gpt-5.6-codex"},
         env,
     )
     cleared_context = json.loads(cleared.stdout)["hookSpecificOutput"]["additionalContext"]
     assert "Default is normal" in cleared_context
-    assert "[prepoison:frame-lock]" not in cleared_context
+    assert "scope=session-fallback" in cleared_context
     assert json.loads(state_path.read_text(encoding="utf-8"))["mode"] == "normal"
-    after_clear = _run_hook_script(
-        PROMPT_HOOK,
-        {"session_id": session_id, "prompt": "Review authentication bypass risk", "model": "gpt-5.6-codex"},
-        env,
-    )
-    after_clear_context = json.loads(after_clear.stdout)["hookSpecificOutput"]["additionalContext"]
-    assert after_clear_context.count("[model-prompt-profile]") == 1
-    assert "scope=current-turn" in after_clear_context
 
 
 @pytest.mark.parametrize(
     ("command", "mode"),
     [("/redteam light", "redteam-light"), ("/redteam full", "redteam-full")],
 )
-def test_mode_enable_injects_prepoison_once(tmp_path: Path, command: str, mode: str) -> None:
+def test_mode_enable_selects_durable_runtime(tmp_path: Path, command: str, mode: str) -> None:
     session_id = f"enable-{mode}"
-    temp_dir = tmp_path / "temp"
     codex_home = tmp_path / "codex-home"
     env = {
         **os.environ,
         "CODEX_HOME": str(codex_home),
-        "TEMP": str(temp_dir),
-        "TMP": str(temp_dir),
         "CODEX_REDTEAM_AUTOMATION_MODE": "plan-only",
         "NO_COLOR": "1",
     }
 
-    enabled = _run_hook_script(PROMPT_HOOK, {"session_id": session_id, "prompt": command}, env)
+    enabled = _run_hook_script(
+        PROMPT_HOOK,
+        {"session_id": session_id, "prompt": command, "model": "gpt-5.6-codex"},
+        env,
+    )
     context = json.loads(enabled.stdout)["hookSpecificOutput"]["additionalContext"]
-
     assert f"Red-team mode enabled ({mode})" in context
-    assert context.count("[prepoison:frame-lock]") == 1
-    assert REVERSE_PROMPT in context
-    assert json.loads(
-        (codex_home / "redteam-mode" / "state" / "sessions" / f"{session_id}.json").read_text(encoding="utf-8")
-    )["mode"] == mode
+    assert "GoalContract -> WorkflowSpec -> ToolBroker -> EvidenceGraph -> TerminalJudge" in context
+    assert context.count("[model-prompt-profile]") == 1
+
+    state_path = codex_home / "redteam-mode" / "state" / "sessions" / f"{session_id}.json"
+    assert json.loads(state_path.read_text(encoding="utf-8"))["mode"] == mode
 
     routed = _run_hook_script(
         PROMPT_HOOK,
-        {"session_id": session_id, "prompt": "Review authentication bypass risk in the login endpoint"},
+        {
+            "session_id": session_id,
+            "prompt": "Review authentication bypass risk in the login endpoint",
+            "model": "gpt-5.6-codex",
+        },
         env,
     )
     routed_context = json.loads(routed.stdout)["hookSpecificOutput"]["additionalContext"]
-    assert f"[mode:{mode}]" in routed_context
-    assert "[phase:web]" in routed_context
-    assert "[router:auth-sec]" in routed_context
+    assert "[operation-status:planned]" in routed_context
+    assert "[automation-mode:plan-only]" in routed_context
+    assert "[feedback-gate:semantic-terminal-judge]" in routed_context
 
 
 def test_mode_disable_describes_remaining_base_and_history_context(tmp_path: Path) -> None:
     session_id = "disable-session"
-    temp_dir = tmp_path / "temp"
     codex_home = tmp_path / "codex-home"
-    env = {
-        **os.environ,
-        "CODEX_HOME": str(codex_home),
-        "TEMP": str(temp_dir),
-        "TMP": str(temp_dir),
-        "NO_COLOR": "1",
-    }
+    env = {**os.environ, "CODEX_HOME": str(codex_home), "NO_COLOR": "1"}
 
-    _run_hook_script(PROMPT_HOOK, {"session_id": session_id, "prompt": "/redteam light"}, env)
+    _run_hook_script(
+        PROMPT_HOOK,
+        {"session_id": session_id, "prompt": "/redteam light", "model": "gpt-5.6-codex"},
+        env,
+    )
     disabled = _run_hook_script(
         PROMPT_HOOK,
         {"session_id": session_id, "prompt": "/redteam off", "model": "gpt-5.6-codex"},
         env,
     )
     context = json.loads(disabled.stdout)["hookSpecificOutput"]["additionalContext"]
-
-    assert "Structured red-team routing disabled" in context
+    assert "Durable red-team operation runtime disabled for future turns" in context
     assert "base instruction.ctf.md profile" in context
     assert "previous task context remain active" in context
     assert "state file remains stored" in context
     assert "/clear" in context
+
     state_path = codex_home / "redteam-mode" / "state" / "sessions" / f"{session_id}.json"
     assert state_path.exists()
     assert json.loads(state_path.read_text(encoding="utf-8"))["mode"] == "normal"
-    after_disable = _run_hook_script(
-        PROMPT_HOOK,
-        {"session_id": session_id, "prompt": "Review authentication bypass risk", "model": "gpt-5.6-codex"},
-        env,
-    )
-    after_disable_context = json.loads(after_disable.stdout)["hookSpecificOutput"]["additionalContext"]
-    assert after_disable_context.count("[model-prompt-profile]") == 1
-    assert "scope=current-turn" in after_disable_context
 
 
 def test_embedded_enable_command_keeps_normal_mode_with_a_selector(tmp_path: Path) -> None:
@@ -1097,16 +894,24 @@ def test_embedded_disable_command_routes_without_disabling_active_mode(tmp_path:
     }
     state_path = codex_home / "redteam-mode" / "state" / "sessions" / f"{session_id}.json"
 
-    _run_hook_script(PROMPT_HOOK, {"session_id": session_id, "prompt": "/redteam light"}, env)
+    _run_hook_script(
+        PROMPT_HOOK,
+        {"session_id": session_id, "prompt": "/redteam light", "model": "gpt-5.6-codex"},
+        env,
+    )
     submitted = _run_hook_script(
         PROMPT_HOOK,
-        {"session_id": session_id, "prompt": "分析文档中出现的 /redteam off 字符串"},
+        {
+            "session_id": session_id,
+            "prompt": "Analyze the literal text /redteam off in this document",
+            "model": "gpt-5.6-codex",
+        },
         env,
     )
 
     context = json.loads(submitted.stdout)["hookSpecificOutput"]["additionalContext"]
-    assert "[mode:redteam-light]" in context
-    assert "Structured red-team routing disabled" not in context
+    assert "[operation-status:planned]" in context
+    assert "Durable red-team operation runtime disabled" not in context
     assert json.loads(state_path.read_text(encoding="utf-8"))["mode"] == "redteam-light"
 
 
@@ -1205,20 +1010,6 @@ def test_missing_session_id_does_not_create_global_state(tmp_path: Path, monkeyp
     assert not redteam_state.state_dir().exists()
 
 
-def test_memory_paths_follow_codex_state_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    codex_home = tmp_path / "codex-home"
-    monkeypatch.setenv("CODEX_HOME", str(codex_home))
-
-    memory_store.save_session_memory("memory-session", {"facts_confirmed": ["fact"]})
-    memory_store.append_long_memory("memory-session", {"summary": "entry"})
-
-    memory_root = codex_home / "redteam-mode" / "state" / "memory"
-    assert (memory_root / "memory-session.json").exists()
-    assert (memory_root / "memory-session.long.json").exists()
-    assert memory_store.load_session_memory("")["facts_confirmed"] == []
-    assert not (memory_root / "global.json").exists()
-
-
 def test_uninstall_preserves_runtime_state_files(tmp_path: Path) -> None:
     codex_home = tmp_path / "codex-home"
     agents_home = tmp_path / "agents-home"
@@ -1265,76 +1056,6 @@ def test_uninstall_preserves_runtime_state_files(tmp_path: Path) -> None:
     assert str(codex_home / "redteam-mode" / "state") in result.stdout
 
 
-def test_normal_session_start_does_not_run_explicit_refusal_backstop(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    sessions = tmp_path / "sessions"
-    previous = sessions / "previous.jsonl"
-    current = sessions / "current.jsonl"
-    sessions.mkdir(parents=True)
-    previous.write_text(
-        json.dumps(
-            {
-                "type": "response_item",
-                "payload": {
-                    "type": "message",
-                    "role": "assistant",
-                    "content": [{"type": "output_text", "text": "I cannot assist with that."}],
-                },
-            }
-        )
-        + "\n",
-        encoding="utf-8",
-    )
-    current.write_text('{"type":"event_msg","payload":{}}\n', encoding="utf-8")
-    os.utime(previous, (10, 10))
-    os.utime(current, (20, 20))
-    monkeypatch.setenv("CODEX_REDTEAM_BACKSTOP_MODE", "detect")
-    assert refusal_backstop.session_start_backstop_messages("normal-session", str(current))
-    env = {
-        **os.environ,
-        "TEMP": str(tmp_path / "temp"),
-        "TMP": str(tmp_path / "temp"),
-        "NO_COLOR": "1",
-    }
-
-    started = _run_hook_script(
-        SESSION_START_HOOK,
-        {"session_id": "normal-session", "transcript_path": str(current), "source": "startup"},
-        env,
-    )
-    context = json.loads(started.stdout)["hookSpecificOutput"]["additionalContext"]
-
-    assert "Default is normal" in context
-    assert "[backstop]" not in context
-
-
-def test_session_prompt_notice_excludes_phase_specific_prompts() -> None:
-    notice = supplemental_prompts.build_prompt_chain_notice(CODEX_PATH, mode="redteam-light")
-
-    assert notice == f"{SYSTEM_PROMPT}\n\n{DO_SPECIAL_PROMPT}"
-    assert REVERSE_PROMPT not in notice
-
-
-def test_redteam_mode_overlay_loads_reverse_prompt_only_for_active_modes() -> None:
-    light = supplemental_prompts.build_redteam_mode_overlay(CODEX_PATH, "redteam-light")
-    full = supplemental_prompts.build_redteam_mode_overlay(CODEX_PATH, "redteam-full")
-    normal = supplemental_prompts.build_redteam_mode_overlay(CODEX_PATH, "normal")
-
-    assert light == REVERSE_PROMPT
-    assert full == light
-    assert normal == ""
-
-
-def test_reverse_prompt_overlay_is_loaded_only_for_reverse_phase() -> None:
-    reverse = supplemental_prompts.build_prompt_overlay(CODEX_PATH, "reverse")
-    web = supplemental_prompts.build_prompt_overlay(CODEX_PATH, "web")
-
-    assert REVERSE_PROMPT[:300] in reverse
-    assert REVERSE_PROMPT[:300] not in web
-
-
 def test_merge_config_preserves_user_sections(tmp_path: Path) -> None:
     target = tmp_path / "config.toml"
     target.write_text(
@@ -1362,7 +1083,8 @@ trust_level = "trusted"
     assert merged["features"]["hooks"] is True
     assert merged["features"]["automation"] is True
     assert merged["automation"]["mode"] == "active"
-    assert merged["automation"]["allow_restricted_actions"] is True
+    assert merged["automation"]["max_actions_per_cycle"] == 16
+    assert merged["automation"]["persist_run_state"] is True
     assert merged["mcp_servers"]["ida-pro-mcp"]["command"] == "ida-mcp"
     assert merged["projects"]["/work/demo"]["trust_level"] == "trusted"
     assert "# user-owned config" in target.read_text(encoding="utf-8")
@@ -1385,12 +1107,16 @@ enabled = false
     install.merge_config_file(REPO_ROOT / "config.toml", target, dry_run=False)
 
     merged = tomllib.loads(target.read_text(encoding="utf-8"))
-    assert merged["automation"]["allow_restricted_actions"] is True
-    assert merged["automation"]["require_scope_for_network"] is False
-    assert merged["automation"]["local_sandbox_fallback"] is True
-    assert "allow_restricted_actions" not in merged["skills"]["config"][0]
-    assert "require_scope_for_network" not in merged["skills"]["config"][0]
-    assert "local_sandbox_fallback" not in merged["skills"]["config"][0]
+    automation_keys = {
+        "max_actions_per_cycle",
+        "action_timeout_seconds",
+        "max_retries_per_action",
+        "max_domains",
+        "max_hypothesis_branches",
+        "persist_run_state",
+    }
+    assert automation_keys <= set(merged["automation"])
+    assert automation_keys.isdisjoint(merged["skills"]["config"][0])
 
 
 def test_merge_config_supports_quoted_automation_table(tmp_path: Path) -> None:
@@ -1407,7 +1133,7 @@ mode = "active"
 
     merged = tomllib.loads(target.read_text(encoding="utf-8"))
     assert merged["automation"]["mode"] == "active"
-    assert merged["automation"]["allow_restricted_actions"] is True
+    assert merged["automation"]["max_actions_per_cycle"] == 16
 
 
 def test_merge_config_accepts_utf8_bom(tmp_path: Path) -> None:
@@ -1653,10 +1379,30 @@ def test_merge_hooks_json_accepts_utf8_bom_and_preserves_user_hooks(tmp_path: Pa
                         }
                     ],
                 }
-            ]
+            ],
+            "Stop": [
+                {
+                    "hooks": [
+                        {
+                            "type": "command",
+                            "command": "python stop-refusal-hook.py",
+                            "statusMessage": install.LEGACY_STOP_STATUS,
+                        }
+                    ]
+                },
+                {
+                    "hooks": [
+                        {
+                            "type": "command",
+                            "command": "user-stop-command",
+                            "statusMessage": "User stop hook",
+                        }
+                    ]
+                },
+            ],
         }
     }
-    hooks_path.write_bytes(b"\xef\xbb\xbf" + json.dumps(user_payload).encode("utf-8"))
+    hooks_path.write_bytes(bytes.fromhex("efbbbf") + json.dumps(user_payload).encode("utf-8"))
 
     install.merge_hooks_json(REPO_ROOT, codex_home, dry_run=False)
 
@@ -1668,8 +1414,10 @@ def test_merge_hooks_json_accepts_utf8_bom_and_preserves_user_hooks(tmp_path: Pa
         for hook in entry["hooks"]
     ]
     assert "user-command" in commands
+    assert "user-stop-command" in commands
     assert any("session-start-context.py" in command for command in commands)
-    assert any("stop-refusal-hook.py" in command for command in commands)
+    assert any("hook-security-context-hook.py" in command for command in commands)
+    assert not any("stop-refusal-hook.py" in command for command in commands)
 
 
 def test_validator_accepts_utf8_bom_hooks_json(tmp_path: Path) -> None:
@@ -1729,13 +1477,10 @@ def test_installed_hook_commands_support_windows_shell_metacharacters(tmp_path: 
     hooks_payload = json.loads((codex_home / "hooks.json").read_text(encoding="utf-8"))
     session_hook = hooks_payload["hooks"]["SessionStart"][0]["hooks"][0]
     prompt_hook = hooks_payload["hooks"]["UserPromptSubmit"][0]["hooks"][0]
-    stop_hook = hooks_payload["hooks"]["Stop"][0]["hooks"][0]
     assert "-EncodedCommand" in session_hook["commandWindows"]
     assert "-EncodedCommand" in prompt_hook["commandWindows"]
-    assert "-EncodedCommand" in stop_hook["commandWindows"]
     assert str(codex_home) not in session_hook["commandWindows"]
     assert str(codex_home) not in prompt_hook["commandWindows"]
-    assert str(codex_home) not in stop_hook["commandWindows"]
 
     session_id = "space-path-session"
     started = subprocess.run(
@@ -1761,25 +1506,6 @@ def test_installed_hook_commands_support_windows_shell_metacharacters(tmp_path: 
     )
     assert enabled.returncode == 0, enabled.stderr
     assert "Red-team mode enabled" in json.loads(enabled.stdout)["hookSpecificOutput"]["additionalContext"]
-
-    stopped = subprocess.run(
-        stop_hook["commandWindows"],
-        input=json.dumps(
-            {
-                "session_id": session_id,
-                "turn_id": "windows-stop-turn",
-                "stop_hook_active": False,
-                "last_assistant_message": None,
-            }
-        ),
-        text=True,
-        shell=True,
-        capture_output=True,
-        env=env,
-        check=False,
-    )
-    assert stopped.returncode == 0, stopped.stderr
-    assert json.loads(stopped.stdout) == {}
 
 
 @pytest.mark.skipif(os.name == "nt", reason="POSIX hook command is executed by /bin/sh")
@@ -1807,7 +1533,6 @@ def test_installed_hook_commands_support_posix_shell_metacharacters(tmp_path: Pa
     hooks_payload = json.loads((codex_home / "hooks.json").read_text(encoding="utf-8"))
     session_command = hooks_payload["hooks"]["SessionStart"][0]["hooks"][0]["command"]
     prompt_command = hooks_payload["hooks"]["UserPromptSubmit"][0]["hooks"][0]["command"]
-    stop_command = hooks_payload["hooks"]["Stop"][0]["hooks"][0]["command"]
     session_id = "posix-special-path-session"
 
     started = subprocess.run(
@@ -1833,25 +1558,6 @@ def test_installed_hook_commands_support_posix_shell_metacharacters(tmp_path: Pa
     )
     assert enabled.returncode == 0, enabled.stderr
     assert "Red-team mode enabled" in json.loads(enabled.stdout)["hookSpecificOutput"]["additionalContext"]
-
-    stopped = subprocess.run(
-        stop_command,
-        input=json.dumps(
-            {
-                "session_id": session_id,
-                "turn_id": "posix-stop-turn",
-                "stop_hook_active": False,
-                "last_assistant_message": None,
-            }
-        ),
-        text=True,
-        shell=True,
-        capture_output=True,
-        env=env,
-        check=False,
-    )
-    assert stopped.returncode == 0, stopped.stderr
-    assert json.loads(stopped.stdout) == {}
 
 
 @pytest.mark.parametrize(
@@ -1968,7 +1674,7 @@ def test_manifest_tracks_config_as_merged_file(tmp_path: Path) -> None:
         agents_file,
         agents_home,
         managed,
-        codex_home / "logs" / "codex-redteam",
+        codex_home / "redteam-mode" / "operations",
         False,
         dry_run=False,
     )
@@ -1979,7 +1685,7 @@ def test_manifest_tracks_config_as_merged_file(tmp_path: Path) -> None:
     assert str(agents_file) in payload["merged_files"]
     assert payload["skills_paths"]["skills_root"] == str(agents_home / "skills")
     assert payload["custom_skill_dirs_enabled"] is False
-    assert payload["log_root"] == str(codex_home / "logs" / "codex-redteam")
+    assert payload["log_root"] == str(codex_home / "redteam-mode" / "operations")
     assert payload["manifest_schema_version"] == 2
     assert payload["prompt_ownership_version"] == install.PROMPT_OWNERSHIP_VERSION
     assert payload["config_merge"]["path"] == str(codex_home / "config.toml")
@@ -2010,10 +1716,7 @@ def test_project_home_allows_custom_agents_home(tmp_path: Path) -> None:
     assert agents_file == project / "AGENTS.md"
 
 
-def test_relative_install_paths_are_resolved_before_manifest_and_hooks(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_relative_install_paths_are_resolved_before_manifest_and_hooks(tmp_path: Path) -> None:
     project = tmp_path / "project"
     agents_home = tmp_path / "shared-agents"
     log_root = tmp_path / "logs"
@@ -2055,11 +1758,8 @@ def test_relative_install_paths_are_resolved_before_manifest_and_hooks(
         for entry in entries
         for hook in entry["hooks"]
     ]
+    assert len(commands) == 2
     assert all(str(codex_home / "hooks") in command for command in commands)
-
-    monkeypatch.chdir(project)
-    assert runtime_paths.resolve_log_root(codex_home) == log_root
-    assert skill_card.resolve_skills_dir(codex_home) == agents_home / "skills"
 
 
 def test_relative_codex_home_environment_is_resolved_for_install(tmp_path: Path) -> None:
@@ -2075,7 +1775,7 @@ def test_relative_codex_home_environment_is_resolved_for_install(tmp_path: Path)
 
     codex_home = tmp_path / "profile"
     payload = json.loads((codex_home / "redteam-install-manifest.json").read_text(encoding="utf-8"))
-    assert payload["log_root"] == str(codex_home / "logs" / "codex-redteam")
+    assert payload["log_root"] == str(codex_home / "redteam-mode" / "operations")
     assert payload["skills_paths"]["skills_root"] == str(tmp_path / "agents" / "skills")
     assert all(Path(path).is_absolute() for path in payload["managed_paths"])
 
@@ -2197,7 +1897,7 @@ def test_retry_reconciles_pending_transaction_and_commits_manifest(
 
     transaction = install.transaction_path(codex_home)
     assert transaction.exists()
-    assert (agents_home / "skills" / "redteam-cve-validation" / "SKILL.md").exists()
+    assert (agents_home / "skills" / "redteam-boundary-policy" / "SKILL.md").exists()
 
     monkeypatch.setattr(install, "run_validate", original_run_validate)
     install.main()
@@ -2205,7 +1905,7 @@ def test_retry_reconciles_pending_transaction_and_commits_manifest(
     assert not transaction.exists()
     committed = json.loads(manifest.read_text(encoding="utf-8"))
     assert committed["version"] == install.APP_VERSION
-    assert str(agents_home / "skills" / "redteam-cve-validation") in committed["managed_paths"]
+    assert str(agents_home / "skills" / "redteam-boundary-policy") in committed["managed_paths"]
 
 
 def test_uninstall_cleans_previous_and_pending_candidate_targets(
@@ -2229,7 +1929,7 @@ def test_uninstall_cleans_previous_and_pending_candidate_targets(
     with pytest.raises(RuntimeError, match="validation failed"):
         install.main()
 
-    candidate_skill = agents_home / "skills" / "redteam-cve-validation" / "SKILL.md"
+    candidate_skill = agents_home / "skills" / "redteam-boundary-policy" / "SKILL.md"
     assert candidate_skill.exists()
     assert install.transaction_path(codex_home).exists()
 
@@ -2282,13 +1982,13 @@ def test_project_home_install_writes_under_dot_dirs(tmp_path: Path) -> None:
     assert not (project / ".codex" / "instruction.ctf.md").exists()
     assert (project / "AGENTS.md").exists()
     assert not (project / ".codex" / "AGENTS.md").exists()
-    assert (project / ".agents" / "skills" / "redteam-cve-validation" / "SKILL.md").exists()
+    assert (project / ".agents" / "skills" / "redteam-boundary-policy" / "SKILL.md").exists()
     assert not (project / "config.toml").exists()
     payload = json.loads((project / ".codex" / "redteam-install-manifest.json").read_text(encoding="utf-8"))
     assert payload["skills_paths"]["skills_root"] == str(project / ".agents" / "skills")
-    assert str(project / ".agents" / "skills" / "redteam-cve-validation") in payload["skills_paths"]["skill_dirs"]
+    assert str(project / ".agents" / "skills" / "redteam-boundary-policy") in payload["skills_paths"]["skill_dirs"]
     assert payload["custom_skill_dirs_enabled"] is False
-    assert payload["log_root"] == str(project / ".codex" / "logs" / "codex-redteam")
+    assert payload["log_root"] == str(project / ".codex" / "redteam-mode" / "operations")
 
 
 def test_prompt_seeds_track_only_installer_created_files_across_reinstall(tmp_path: Path) -> None:
@@ -2298,14 +1998,15 @@ def test_prompt_seeds_track_only_installer_created_files_across_reinstall(tmp_pa
     user_prompt = prompts_dir / "Reverse.md"
     user_prompt.write_text("user-owned prompt\n", encoding="utf-8")
     command = [sys.executable, str(INSTALL_PATH), "--project-home", str(project)]
+    bundled_names = {path.name for path in (CODEX_PATH / "prompts").glob("*.md")}
 
     for _ in range(2):
         subprocess.run(command, cwd=REPO_ROOT, check=True, stdout=subprocess.DEVNULL)
         payload = json.loads(
             (project / ".codex" / "redteam-install-manifest.json").read_text(encoding="utf-8")
         )
-        assert str(prompts_dir / "do_special.md") in payload["managed_paths"]
-        assert str(prompts_dir / "system-prompt.md") in payload["managed_paths"]
+        assert bundled_names
+        assert {str(prompts_dir / name) for name in bundled_names} <= set(payload["managed_paths"])
         assert str(user_prompt) not in payload["managed_paths"]
         assert user_prompt.read_text(encoding="utf-8") == "user-owned prompt\n"
 
@@ -2317,42 +2018,7 @@ def test_prompt_seeds_track_only_installer_created_files_across_reinstall(tmp_pa
     )
 
     assert user_prompt.read_text(encoding="utf-8") == "user-owned prompt\n"
-    assert not (prompts_dir / "do_special.md").exists()
-    assert not (prompts_dir / "system-prompt.md").exists()
-
-
-def test_upgrade_adopts_untracked_legacy_prompt_with_backup(tmp_path: Path) -> None:
-    project = tmp_path / "project"
-    codex_home = project / ".codex"
-    prompts_dir = codex_home / "prompts"
-    prompts_dir.mkdir(parents=True)
-    legacy_prompt = prompts_dir / "Reverse.md"
-    legacy_prompt.write_text("legacy prompt content\n", encoding="utf-8")
-    install.manifest_path(codex_home).write_text(
-        json.dumps(
-            {
-                "name": install.APP_NAME,
-                "version": "1.2.0",
-                "managed_paths": [],
-            }
-        ),
-        encoding="utf-8",
-    )
-    command = [sys.executable, str(INSTALL_PATH), "--project-home", str(project)]
-
-    subprocess.run(command, cwd=REPO_ROOT, check=True, stdout=subprocess.DEVNULL)
-
-    backups = list(prompts_dir.glob("Reverse.md.*.bak"))
-    assert len(backups) == 1
-    assert backups[0].read_text(encoding="utf-8") == "legacy prompt content\n"
-    assert legacy_prompt.read_text(encoding="utf-8").strip() == REVERSE_PROMPT
-    payload = json.loads(install.manifest_path(codex_home).read_text(encoding="utf-8"))
-    assert str(legacy_prompt) in payload["managed_paths"]
-
-    subprocess.run(command, cwd=REPO_ROOT, check=True, stdout=subprocess.DEVNULL)
-
-    assert len(list(prompts_dir.glob("Reverse.md.*.bak"))) == 1
-    assert legacy_prompt.read_text(encoding="utf-8").strip() == REVERSE_PROMPT
+    assert all(not (prompts_dir / name).exists() for name in bundled_names)
 
 
 def test_upgrade_builds_system_instructions_from_adopted_legacy_profiles(tmp_path: Path) -> None:
@@ -2395,78 +2061,12 @@ def test_upgrade_builds_system_instructions_from_adopted_legacy_profiles(tmp_pat
     assert metadata["profile_sha256"] != install._sha256_text("legacy profile content")
 
 
-def test_upgrade_adopts_matching_untracked_legacy_prompt_without_backup(tmp_path: Path) -> None:
-    project = tmp_path / "project"
-    codex_home = project / ".codex"
-    prompts_dir = codex_home / "prompts"
-    prompts_dir.mkdir(parents=True)
-    legacy_prompt = prompts_dir / "Reverse.md"
-    legacy_prompt.write_bytes((CODEX_PATH / "prompts" / "Reverse.md").read_bytes())
-    install.manifest_path(codex_home).write_text(
-        json.dumps(
-            {
-                "name": install.APP_NAME,
-                "version": "1.2.0",
-                "managed_paths": [],
-            }
-        ),
-        encoding="utf-8",
-    )
-
-    subprocess.run(
-        [sys.executable, str(INSTALL_PATH), "--project-home", str(project)],
-        cwd=REPO_ROOT,
-        check=True,
-        stdout=subprocess.DEVNULL,
-    )
-
-    assert not list(prompts_dir.glob("Reverse.md.*.bak"))
-    assert legacy_prompt.read_text(encoding="utf-8").strip() == REVERSE_PROMPT
-    payload = json.loads(install.manifest_path(codex_home).read_text(encoding="utf-8"))
-    assert str(legacy_prompt) in payload["managed_paths"]
-
-
-def test_upgrade_legacy_prompt_dry_run_only_reports_changes(tmp_path: Path) -> None:
-    project = tmp_path / "project"
-    codex_home = project / ".codex"
-    prompts_dir = codex_home / "prompts"
-    prompts_dir.mkdir(parents=True)
-    legacy_prompt = prompts_dir / "Reverse.md"
-    legacy_prompt.write_text("legacy prompt content\n", encoding="utf-8")
-    manifest = install.manifest_path(codex_home)
-    manifest.write_text(
-        json.dumps(
-            {
-                "name": install.APP_NAME,
-                "version": "1.2.0",
-                "managed_paths": [],
-            }
-        ),
-        encoding="utf-8",
-    )
-    original_manifest = manifest.read_bytes()
-
-    result = subprocess.run(
-        [sys.executable, str(INSTALL_PATH), "--project-home", str(project), "--dry-run"],
-        cwd=REPO_ROOT,
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-
-    assert "replace legacy prompt" in result.stdout
-    assert "backup" in result.stdout
-    assert legacy_prompt.read_text(encoding="utf-8") == "legacy prompt content\n"
-    assert not list(prompts_dir.glob("Reverse.md.*.bak"))
-    assert manifest.read_bytes() == original_manifest
-
-
 def test_install_does_not_adopt_prompt_from_foreign_manifest(tmp_path: Path) -> None:
     project = tmp_path / "project"
     codex_home = project / ".codex"
     prompts_dir = codex_home / "prompts"
     prompts_dir.mkdir(parents=True)
-    user_prompt = prompts_dir / "Reverse.md"
+    user_prompt = prompts_dir / "Jailbreak.default.md"
     user_prompt.write_text("user-owned prompt\n", encoding="utf-8")
     install.manifest_path(codex_home).write_text(
         json.dumps(
@@ -2486,7 +2086,7 @@ def test_install_does_not_adopt_prompt_from_foreign_manifest(tmp_path: Path) -> 
     )
 
     assert user_prompt.read_text(encoding="utf-8") == "user-owned prompt\n"
-    assert not list(prompts_dir.glob("Reverse.md.*.bak"))
+    assert not list(prompts_dir.glob("Jailbreak.default.md.*.bak"))
     payload = json.loads(install.manifest_path(codex_home).read_text(encoding="utf-8"))
     assert str(user_prompt) not in payload["managed_paths"]
 
@@ -2575,11 +2175,11 @@ def test_project_home_install_accepts_custom_agents_home(tmp_path: Path) -> None
     )
 
     assert (project / ".codex" / "config.toml").exists()
-    assert (custom_agents / "skills" / "redteam-cve-validation" / "SKILL.md").exists()
+    assert (custom_agents / "skills" / "redteam-boundary-policy" / "SKILL.md").exists()
     assert not (project / ".agents").exists()
     payload = json.loads((project / ".codex" / "redteam-install-manifest.json").read_text(encoding="utf-8"))
     assert payload["skills_paths"]["skills_root"] == str(custom_agents / "skills")
-    assert str(custom_agents / "skills" / "redteam-cve-validation") in payload["skills_paths"]["skill_dirs"]
+    assert str(custom_agents / "skills" / "redteam-boundary-policy") in payload["skills_paths"]["skill_dirs"]
 
 
 def test_custom_agents_home_without_runtime_opt_in_warns(tmp_path: Path) -> None:
@@ -2628,39 +2228,6 @@ def test_custom_agents_home_with_runtime_opt_in_does_not_warn(tmp_path: Path) ->
     assert "[WARN] custom --agents-home" not in result.stdout
 
 
-def test_validate_reports_custom_skill_runtime_mismatch(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    project = tmp_path / "project"
-    custom_agents = tmp_path / "custom-agents"
-    fake_home = tmp_path / "home"
-    runtime_skills = fake_home / ".agents" / "skills"
-    _write_skill(runtime_skills)
-
-    subprocess.run(
-        [
-            sys.executable,
-            str(INSTALL_PATH),
-            "--project-home",
-            str(project),
-            "--agents-home",
-            str(custom_agents),
-        ],
-        cwd=REPO_ROOT,
-        check=True,
-        stdout=subprocess.DEVNULL,
-    )
-    monkeypatch.setattr(skill_card.Path, "home", classmethod(lambda cls: fake_home))
-
-    all_ok, messages = validate.validate_install(project / ".codex")
-
-    assert all_ok is True
-    assert f"Installed skill cards: {custom_agents / 'skills'}" in messages
-    assert f"Runtime skill cards: {runtime_skills}" in messages
-    assert any("runtime is not using the installed skill root" in message for message in messages)
-
-
 def test_uninstall_external_agents_home_requires_original_scope(tmp_path: Path) -> None:
     project = tmp_path / "project"
     custom_agents = tmp_path / "custom-agents"
@@ -2682,7 +2249,7 @@ def test_uninstall_external_agents_home_requires_original_scope(tmp_path: Path) 
     manifest = codex_home / "redteam-install-manifest.json"
     manifest_before = manifest.read_bytes()
     managed = codex_home / "redteam-mode" / "system-instructions.md"
-    skill = custom_agents / "skills" / "redteam-cve-validation" / "SKILL.md"
+    skill = custom_agents / "skills" / "redteam-boundary-policy" / "SKILL.md"
 
     result = subprocess.run(
         [sys.executable, str(INSTALL_PATH), "--project-home", str(project), "--uninstall"],
@@ -2740,7 +2307,7 @@ def test_upgrade_external_agents_home_requires_original_scope(tmp_path: Path) ->
     manifest = codex_home / "redteam-install-manifest.json"
     manifest_before = manifest.read_bytes()
     managed = codex_home / "redteam-mode" / "system-instructions.md"
-    old_skill = original_agents / "skills" / "redteam-cve-validation" / "SKILL.md"
+    old_skill = original_agents / "skills" / "redteam-boundary-policy" / "SKILL.md"
 
     result = subprocess.run(
         [
@@ -2802,206 +2369,7 @@ def test_codex_home_install_manifest_log_root_follows_codex_home(tmp_path: Path)
     )
 
     payload = json.loads((codex_home / "redteam-install-manifest.json").read_text(encoding="utf-8"))
-    assert payload["log_root"] == str(codex_home / "logs" / "codex-redteam")
-
-
-def test_skill_resolver_ignores_agents_home_and_uses_project_dot_agents(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    project = tmp_path / "project"
-    fake_home = tmp_path / "home"
-    env_agents = tmp_path / "env-agents"
-    _write_skill(project / ".agents" / "skills")
-    _write_skill(env_agents / "skills")
-    monkeypatch.setattr(skill_card.Path, "home", classmethod(lambda cls: fake_home))
-    monkeypatch.setenv("AGENTS_HOME", str(env_agents))
-
-    resolved = skill_card.resolve_skills_dir(project / ".codex")
-
-    assert resolved == project / ".agents" / "skills"
-
-
-def test_skill_resolver_uses_custom_manifest_skills_root_when_enabled(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    project = tmp_path / "project"
-    custom_root = tmp_path / "custom-agents" / "skills"
-    fake_home = tmp_path / "home"
-    _write_skill(project / ".agents" / "skills")
-    _write_skill(custom_root)
-    manifest = project / ".codex" / "redteam-install-manifest.json"
-    manifest.parent.mkdir(parents=True)
-    manifest.write_text(
-        json.dumps(
-            {
-                "custom_skill_dirs_enabled": True,
-                "skills_paths": {
-                    "skills_root": str(custom_root),
-                    "skill_dirs": [str(custom_root / "redteam-demo")],
-                },
-            }
-        ),
-        encoding="utf-8",
-    )
-    monkeypatch.setattr(skill_card.Path, "home", classmethod(lambda cls: fake_home))
-
-    resolved = skill_card.resolve_skills_dir(project / ".codex")
-
-    assert resolved == custom_root
-
-
-def test_skill_resolver_falls_back_to_manifest_root_when_defaults_missing(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    project = tmp_path / "project"
-    custom_root = tmp_path / "custom-agents" / "skills"
-    fake_home = tmp_path / "home"
-    _write_skill(custom_root)
-    manifest = project / ".codex" / "redteam-install-manifest.json"
-    manifest.parent.mkdir(parents=True)
-    manifest.write_text(
-        json.dumps(
-            {
-                "custom_skill_dirs_enabled": False,
-                "skills_paths": {
-                    "skills_root": str(custom_root),
-                    "skill_dirs": [str(custom_root / "redteam-demo")],
-                },
-            }
-        ),
-        encoding="utf-8",
-    )
-    monkeypatch.setattr(skill_card.Path, "home", classmethod(lambda cls: fake_home))
-
-    resolved = skill_card.resolve_skills_dir(project / ".codex")
-
-    assert resolved == custom_root
-
-
-def test_runtime_log_root_comes_from_manifest(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    project = tmp_path / "project"
-    log_root = tmp_path / "custom-logs"
-    fake_home = tmp_path / "home"
-    manifest = project / ".codex" / "redteam-install-manifest.json"
-    manifest.parent.mkdir(parents=True)
-    manifest.write_text(json.dumps({"log_root": str(log_root)}), encoding="utf-8")
-    monkeypatch.setattr(runtime_paths.Path, "home", classmethod(lambda cls: fake_home))
-
-    resolved = runtime_paths.resolve_log_root(project / ".codex")
-
-    assert resolved == log_root
-
-
-def test_runtime_manifest_resolves_from_current_codex_dir_without_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    codex_home = tmp_path / "custom-codex"
-    custom_root = tmp_path / "custom-agents" / "skills"
-    log_root = tmp_path / "custom-logs"
-    fake_home = tmp_path / "home"
-    _write_skill(custom_root)
-    manifest = codex_home / "redteam-install-manifest.json"
-    manifest.parent.mkdir(parents=True)
-    manifest.write_text(
-        json.dumps(
-            {
-                "log_root": str(log_root),
-                "custom_skill_dirs_enabled": True,
-                "skills_paths": {
-                    "skills_root": str(custom_root),
-                    "skill_dirs": [str(custom_root / "redteam-demo")],
-                },
-            }
-        ),
-        encoding="utf-8",
-    )
-    monkeypatch.setattr(runtime_paths.Path, "home", classmethod(lambda cls: fake_home))
-    monkeypatch.setattr(skill_card.Path, "home", classmethod(lambda cls: fake_home))
-    monkeypatch.delenv("CODEX_HOME", raising=False)
-
-    assert runtime_paths.resolve_log_root(codex_home) == log_root
-    assert skill_card.resolve_skills_dir(codex_home) == custom_root
-
-
-def test_runtime_log_root_falls_back_to_user_codex_logs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    project = tmp_path / "project"
-    fake_home = tmp_path / "home"
-    monkeypatch.setattr(runtime_paths.Path, "home", classmethod(lambda cls: fake_home))
-    monkeypatch.delenv("CODEX_HOME", raising=False)
-
-    resolved = runtime_paths.resolve_log_root(project / ".codex")
-
-    assert resolved == fake_home / ".codex" / "logs" / "codex-redteam"
-
-
-def test_extract_transcript_path_from_hook_payload() -> None:
-    payload = {"transcript_path": "C:/tmp/session.jsonl"}
-
-    assert prompt_parser.extract_transcript_path(payload) == "C:/tmp/session.jsonl"
-
-
-def test_refusal_backstop_session_dir_uses_transcript_session_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    transcript = tmp_path / "sessions" / "2026" / "07" / "10" / "current.jsonl"
-    fake_home = tmp_path / "home"
-    monkeypatch.setattr(refusal_backstop.Path, "home", classmethod(lambda cls: fake_home))
-    monkeypatch.setenv("CODEX_REDTEAM_SESSION_DIR", str(tmp_path / "ignored"))
-
-    resolved = refusal_backstop._session_dir(str(transcript))
-
-    assert resolved == tmp_path / "sessions"
-
-
-def test_refusal_backstop_session_dir_falls_back_to_transcript_parent(tmp_path: Path) -> None:
-    transcript = tmp_path / "transcripts" / "current.jsonl"
-
-    assert refusal_backstop._session_dir(str(transcript)) == transcript.parent
-
-
-def test_refusal_backstop_selects_previous_session_across_date_directories(tmp_path: Path) -> None:
-    sessions = tmp_path / "sessions"
-    previous = _write_session(sessions / "2026" / "07" / "09" / "previous.jsonl", 10)
-    current = _write_session(sessions / "2026" / "07" / "10" / "current.jsonl", 20)
-
-    selected = refusal_backstop._select_previous_session(None, str(current))
-
-    assert selected == previous
-
-
-def test_refusal_backstop_selects_previous_session_on_same_day(tmp_path: Path) -> None:
-    day = tmp_path / "sessions" / "2026" / "07" / "10"
-    previous = _write_session(day / "previous.jsonl", 10)
-    current = _write_session(day / "current.jsonl", 20)
-
-    assert refusal_backstop._select_previous_session(None, str(current)) == previous
-
-
-def test_refusal_backstop_selects_latest_other_file_when_current_is_missing(tmp_path: Path) -> None:
-    sessions = tmp_path / "sessions"
-    older = _write_session(sessions / "2026" / "07" / "09" / "older.jsonl", 10)
-    latest = _write_session(sessions / "2026" / "07" / "10" / "latest.jsonl", 20)
-    missing_current = sessions / "2026" / "07" / "11" / "current.jsonl"
-
-    assert refusal_backstop._select_previous_session(None, str(missing_current)) == latest
-    assert latest != older
-
-
-def test_refusal_backstop_does_not_fall_back_to_another_profile(tmp_path: Path) -> None:
-    custom_sessions = tmp_path / "custom" / "sessions"
-    current = _write_session(custom_sessions / "2026" / "07" / "10" / "current.jsonl", 20)
-    _write_session(tmp_path / "home" / ".codex" / "sessions" / "2026" / "07" / "09" / "global.jsonl", 10)
-
-    assert refusal_backstop._select_previous_session(None, str(current)) is None
-
-
-def test_refusal_backstop_session_dir_uses_codex_home_without_transcript(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    codex_home = tmp_path / "codex-home"
-    fake_home = tmp_path / "home"
-    monkeypatch.setattr(patcher.Path, "home", classmethod(lambda cls: fake_home))
-    monkeypatch.setenv("CODEX_HOME", str(codex_home))
-    monkeypatch.setenv("CODEX_REDTEAM_SESSION_DIR", str(tmp_path / "ignored"))
-
-    resolved = refusal_backstop._session_dir()
-
-    assert resolved == codex_home / "sessions"
-
-
-def test_session_patcher_default_session_dir_uses_codex_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    codex_home = tmp_path / "codex-home"
-    monkeypatch.setenv("CODEX_HOME", str(codex_home))
-
-    assert patcher.default_session_dir() == codex_home / "sessions"
+    assert payload["log_root"] == str(codex_home / "redteam-mode" / "operations")
 
 
 def test_project_home_rejects_codex_home_mix(tmp_path: Path) -> None:
