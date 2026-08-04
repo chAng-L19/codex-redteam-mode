@@ -147,12 +147,12 @@ Hook 会话状态保存在 `$CODEX_HOME/redteam-mode/state/sessions`。可通过
 ## 快速开始
 
 1. 完成安装并重启 Codex App，或重新启动 Codex CLI。
-2. 新建任务，单独输入 `/redteam on`、`/redteam light` 或 `/redteam full`。
+2. 新建任务，单独输入 `redteam on`、`redteam light` 或 `redteam full`。
 3. 输入完整目标；Hook 会把目标编译为 `GoalContract`，单目标和多目标分别进入独立 operation。
 4. `redteam_run` 自动启动或恢复运行，通过 `ToolBroker` 调用可用 MCP 工具。
 5. Host Agent 独占工具会收到 `next_action_spec`、gate、exit condition 和 output contract，并自动把 observation 回灌 Runtime。
 6. `TerminalJudge` 证明所有目标准则、证据血缘和清理状态后生成最终结果。
-7. 输入 `/redteam off`、`退出红队模式` 或 `关闭红队模式` 返回 normal 模式。
+7. 输入 `redteam off`、`退出红队模式` 或 `关闭红队模式` 返回 normal 模式。
 
 ### Prompt Rewrite
 
