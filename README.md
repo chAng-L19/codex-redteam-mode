@@ -146,12 +146,12 @@ Upgrade and uninstall preserve runtime session, memory, and operation data for r
 ## Quick Start
 
 1. Complete installation and restart Codex App or Codex CLI.
-2. Start a new task and submit `/redteam on`, `/redteam light`, or `/redteam full` as a standalone prompt.
+2. Start a new task and submit `redteam on`, `redteam light`, or `redteam full` as a standalone prompt.
 3. Submit the complete objective. The Hook compiles it into a `GoalContract`, with independent operations for single or multiple targets.
 4. `redteam_run` starts or resumes execution and uses `ToolBroker` to invoke available MCP tools.
 5. Host-only tools receive a `next_action_spec`, gate, exit condition, and output contract, then automatically submit their observation to the Runtime.
 6. `TerminalJudge` emits the final result after proving every target criterion, evidence lineage, and cleanup state.
-7. Submit `/redteam off` or `disable red team mode` to return to normal mode.
+7. Submit `redteam off` or `disable red team mode` to return to normal mode.
 
 ### Prompt Rewrite
 
