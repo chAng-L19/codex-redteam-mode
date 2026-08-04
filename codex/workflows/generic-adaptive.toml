@@ -1,22 +1,22 @@
 [workflow]
 id = "generic-adaptive"
-version = 1
-name = "Generic adaptive assessment"
-description = "Evidence-driven fallback workflow for goals without a specialized operation profile."
-match_tags = ["assessment", "test", "analyze", "评估", "测试", "分析"]
+version = 2
+name = "Unified adaptive red-team operation"
+description = "One evidence-driven control flow for web, source, binary, identity, cloud, model, CTF, IR, and adversary-emulation goals."
+match_tags = ["adaptive", "redteam", "assessment", "test", "analyze", "评估", "测试", "分析"]
 required_artifacts = ["surface_map", "hypothesis_queue", "reproduction_artifact", "impact_proof", "coverage_report", "cleanup_proof", "final_report"]
 
 [[actions]]
 id = "map-surface"
 name = "Map the initial surface"
-capabilities = ["target_intake", "page_fetch", "code_analysis", "binary_reverse"]
+capabilities = ["target_intake", "environment_inventory", "page_fetch", "code_analysis", "binary_reverse", "identity_inventory", "model_probe"]
 expected_artifact = "surface_map"
 verifier = "surface_map"
 risk = "passive"
 tool_strategy = "capability_coverage"
 min_tool_results = 1
-max_tool_results = 3
-parameters = { coverage_focus = ["target type", "entrypoints", "identities and trust", "data and control flow", "runtime and deployment state"] }
+max_tool_results = 4
+parameters = { coverage_focus = ["asset and target provenance", "entrypoints and exposed services", "identities, permissions, and trust edges", "data and control flow", "runtime, deployment, and protection state", "telemetry and rollback prerequisites"] }
 
 [[actions]]
 id = "build-hypotheses"
@@ -26,17 +26,17 @@ expected_artifact = "hypothesis_queue"
 verifier = "hypothesis_queue"
 depends_on = ["map-surface"]
 risk = "safe"
-parameters = { prioritization = ["evidence strength", "reachability", "expected impact", "cost and noise", "reversibility"] }
+parameters = { prioritization = ["evidence strength", "end-to-end reachability", "goal-relevant impact", "tool readiness", "cost and noise", "reversibility"], branch_contract = ["prove one end-to-end path before breadth", "bind each hypothesis to parent evidence", "keep explicit prerequisites and falsifiers"] }
 
 [[actions]]
 id = "validate-path"
 name = "Validate the highest-value path"
-capabilities = ["controlled_validation", "browser_automation", "code_generation"]
+capabilities = ["controlled_validation", "browser_automation", "test_harness", "binary_reverse", "identity_validation", "prompt_evaluation", "technique_execution", "code_generation"]
 expected_artifact = "reproduction_artifact"
 verifier = "reproduction_artifact"
 depends_on = ["build-hypotheses"]
 risk = "active_medium"
-parameters = { validation_contract = ["establish baseline", "test one hypothesis", "capture reproducible evidence", "run negative control", "record side effects and rollback"] }
+parameters = { validation_contract = ["establish a measured baseline", "validate prerequisites", "test one hypothesis with the lowest-noise proving action", "capture raw reproducible evidence", "run a matched negative control", "record side effects and rollback"] }
 
 [[actions]]
 id = "prove-impact"

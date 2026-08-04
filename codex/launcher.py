@@ -88,6 +88,29 @@ def _read_config(config_path: Path) -> dict:
     return value if isinstance(value, dict) else {}
 
 
+def ensure_rewrite_proxy(codex_home: Path, config_path: Path) -> bool:
+    config = _read_config(config_path)
+    redteam = config.get("redteam") if isinstance(config.get("redteam"), dict) else {}
+    proxy = redteam.get("rewrite_proxy") if isinstance(redteam.get("rewrite_proxy"), dict) else {}
+    if proxy.get("enabled") is not True:
+        return True
+    script = codex_home / "redteam-mode" / "rewrite_proxy.py"
+    if not script.is_file():
+        return False
+    try:
+        completed = subprocess.run(
+            [sys.executable, "-B", str(script), "--config", str(config_path), "--ensure"],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=8,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    return completed.returncode == 0
+
+
 def resolve_model(args: list[str]) -> str:
     models = _model_arguments(args)
     if not models:
@@ -157,6 +180,9 @@ def main(argv: list[str] | None = None) -> int:
     shared_path = codex_home / "redteam-mode" / "system-instructions.md"
     if not shared_path.is_file() or not profile_path.is_file():
         print("ERROR: installed system instructions or model profile is missing", file=sys.stderr)
+        return 2
+    if not ensure_rewrite_proxy(codex_home, config_path):
+        print("ERROR: rewrite proxy is enabled but did not become healthy", file=sys.stderr)
         return 2
 
     content = build_session_instructions(

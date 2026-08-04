@@ -9,10 +9,11 @@ from .prompt_parser import (
     parse_opsec_command,
 )
 from .state_manager import load_runtime_state, reset_runtime_state, save_runtime_state
-from .supplemental_prompts import build_prompt_chain_notice
+from .supplemental_prompts import build_authorization_context, build_prompt_chain_notice
 
 __all__ = [
     "ModelPromptProfile",
+    "build_authorization_context",
     "build_prompt_chain_notice",
     "decode_stdin",
     "emit_hook_json",

@@ -282,6 +282,8 @@ def test_installer_registers_all_hook_events(tmp_path: Path) -> None:
 
     assert set(payload["hooks"]) == {"SessionStart", "UserPromptSubmit"}
     assert "{{" not in json.dumps(payload)
+    prompt_hook = payload["hooks"]["UserPromptSubmit"][0]["hooks"][0]
+    assert prompt_hook["statusMessage"] == install.PROMPT_STATUS
 
 
 def test_installer_treats_removed_stop_hook_as_legacy_managed(tmp_path: Path) -> None:
@@ -347,7 +349,7 @@ def test_hook_stdout_is_utf8_safe_under_gbk(tmp_path: Path) -> None:
     )
     assert routed.stdout.isascii()
     routed_context = json.loads(routed.stdout.decode("utf-8"))["hookSpecificOutput"]["additionalContext"]
-    assert "[workflow:web-api-assessment]" in routed_context
+    assert "[workflow:generic-adaptive]" in routed_context
     assert "[automation-mode:plan-only]" in routed_context
     assert routed_context.count("[model-prompt-profile]") == 1
 
@@ -510,6 +512,8 @@ def test_normal_user_prompt_emits_one_authoritative_selector_and_saves_model(tmp
     assert "scope=current-turn" in context
     assert "authoritative=true" in context
     assert "supersedes=all-prior" in context
+    assert "authorized-research-context" not in context
+    assert "[workflow:" not in context
     assert state["mode"] == "normal"
     assert state["active_model"] == "gpt-5.6-sol"
     assert state["active_prompt_profile"] == "gpt-5.6*"
@@ -816,6 +820,7 @@ def test_mode_enable_selects_durable_runtime(tmp_path: Path, command: str, mode:
     )
     context = json.loads(enabled.stdout)["hookSpecificOutput"]["additionalContext"]
     assert f"Red-team mode enabled ({mode})" in context
+    assert "authorized-research-context" in context
     assert "GoalContract -> WorkflowSpec -> ToolBroker -> EvidenceGraph -> TerminalJudge" in context
     assert context.count("[model-prompt-profile]") == 1
 
@@ -1083,7 +1088,7 @@ trust_level = "trusted"
     assert merged["features"]["hooks"] is True
     assert merged["features"]["automation"] is True
     assert merged["automation"]["mode"] == "active"
-    assert merged["automation"]["max_actions_per_cycle"] == 16
+    assert merged["automation"]["max_actions_per_cycle"] == 64
     assert merged["automation"]["persist_run_state"] is True
     assert merged["mcp_servers"]["ida-pro-mcp"]["command"] == "ida-mcp"
     assert merged["projects"]["/work/demo"]["trust_level"] == "trusted"
@@ -1111,7 +1116,6 @@ enabled = false
         "max_actions_per_cycle",
         "action_timeout_seconds",
         "max_retries_per_action",
-        "max_domains",
         "max_hypothesis_branches",
         "persist_run_state",
     }
@@ -1133,7 +1137,7 @@ mode = "active"
 
     merged = tomllib.loads(target.read_text(encoding="utf-8"))
     assert merged["automation"]["mode"] == "active"
-    assert merged["automation"]["max_actions_per_cycle"] == 16
+    assert merged["automation"]["max_actions_per_cycle"] == 64
 
 
 def test_merge_config_accepts_utf8_bom(tmp_path: Path) -> None:
@@ -1164,6 +1168,103 @@ def test_runtime_accepts_unchanged_utf8_bom_config(
     monkeypatch.delenv("CODEX_REDTEAM_AUTOMATION_MODE", raising=False)
     monkeypatch.delenv("CODEX_REDTEAM_CONFIG", raising=False)
     assert controller._automation_mode_from_config(codex_home, "redteam-light") == "active"
+
+
+def test_installer_can_enable_and_rollback_rewrite_proxy(tmp_path: Path) -> None:
+    codex_home = tmp_path / "codex-home"
+    agents_home = tmp_path / "agents-home"
+    codex_home.mkdir()
+    original = '''model_provider = "custom-upstream"
+
+[model_providers.custom-upstream]
+base_url = "https://gateway.example/v1"
+wire_api = "responses"
+requires_openai_auth = true
+env_key = "CUSTOM_UPSTREAM_KEY"
+'''
+    (codex_home / "config.toml").write_text(original, encoding="utf-8")
+    environment = {**os.environ, "NO_COLOR": "1"}
+
+    subprocess.run(
+        [
+            sys.executable,
+            str(INSTALL_PATH),
+            "--codex-home",
+            str(codex_home),
+            "--agents-home",
+            str(agents_home),
+            "--model",
+            "gpt-5.6-sol",
+            "--enable-rewrite-proxy",
+        ],
+        cwd=REPO_ROOT,
+        env=environment,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    installed = tomllib.loads((codex_home / "config.toml").read_text(encoding="utf-8"))
+    assert installed["model_provider"] == install.REWRITE_PROXY_PROVIDER
+    assert installed["redteam"]["prompt_rewrite"]["mode"] == "proxy"
+    assert installed["redteam"]["rewrite_proxy"]["enabled"] is True
+    assert installed["redteam"]["rewrite_proxy"]["upstream_provider"] == "custom-upstream"
+    assert installed["model_providers"][install.REWRITE_PROXY_PROVIDER]["base_url"] == "http://127.0.0.1:8765/v1"
+    assert installed["model_providers"][install.REWRITE_PROXY_PROVIDER]["env_key"] == "CUSTOM_UPSTREAM_KEY"
+    assert (codex_home / "redteam-mode" / "rewrite_proxy.py").is_file()
+    assert (codex_home / "redteam-mode" / "codex-redteam-proxy.cmd").is_file()
+
+    config_text = (codex_home / "config.toml").read_text(encoding="utf-8")
+    (codex_home / "config.toml").write_text(
+        config_text.replace(
+            "[redteam.rewrite_proxy]\nenabled = true",
+            "[redteam.rewrite_proxy]\nenabled = false",
+            1,
+        ),
+        encoding="utf-8",
+    )
+    manually_disabled = tomllib.loads((codex_home / "config.toml").read_text(encoding="utf-8"))
+    assert manually_disabled["redteam"]["rewrite_proxy"]["enabled"] is False
+    subprocess.run(
+        [
+            sys.executable,
+            str(INSTALL_PATH),
+            "--codex-home",
+            str(codex_home),
+            "--agents-home",
+            str(agents_home),
+            "--model",
+            "gpt-5.6-sol",
+        ],
+        cwd=REPO_ROOT,
+        env=environment,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    upgraded = tomllib.loads((codex_home / "config.toml").read_text(encoding="utf-8"))
+    assert upgraded["redteam"]["rewrite_proxy"]["enabled"] is True
+    assert upgraded["redteam"]["rewrite_proxy"]["upstream_provider"] == "custom-upstream"
+
+    subprocess.run(
+        [
+            sys.executable,
+            str(INSTALL_PATH),
+            "--codex-home",
+            str(codex_home),
+            "--agents-home",
+            str(agents_home),
+            "--uninstall",
+        ],
+        cwd=REPO_ROOT,
+        env=environment,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    restored = tomllib.loads((codex_home / "config.toml").read_text(encoding="utf-8"))
+    assert restored == tomllib.loads(original)
 
 
 def test_validate_config_accepts_utf8_bom(tmp_path: Path) -> None:

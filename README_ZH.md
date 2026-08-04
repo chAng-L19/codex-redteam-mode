@@ -2,7 +2,7 @@
 
 [English](./README.md)
 
-**当前版本：v2.0.0**
+**当前版本：v2.1.0**
 
 > 默认保持 normal 模式；只有显式开启红队模式后，才启动持久化操作运行时。系统层基础指令与当前模型 profile 在所有模式下保持加载。
 
@@ -12,10 +12,9 @@
 
 使用该项目前，您应完整阅读 [README](./README_ZH.md) 文件，以防在使用过程中出现问题。
 
-### 关于模型安全审查
+### 模型与系统 Prompt
 
-1. 对于`GPT-5.4`，该模型没有`网络安全可信访问`，您可以直接使用本项目进行渗透测试。
-2. 对于`GPT-5.5`以及`GPT-5.6`，会有`其他模型`在云端检测模型的输出，若输出不合规则会`封禁此会话`，因此，为了保证您的顺利使用，请确保：`ChatGPT账号通过网络安全可信访问`、`使用GPT-5.4`、`使用Claude-Opus-4-6` 或 `使用其他无安全审查的模型`。
+安装器通过 `model_instructions_file` 在系统层组合用户原有指令、`instruction.ctf.md` 与对应的 `Jailbreak.gpt-5.x.md`。Codex App 新任务由 Hook 读取当前模型并选择 profile；CLI wrapper 在进程启动前生成单 profile 系统文件并锁定模型族。
 
 ### 提问的智慧
 
@@ -43,9 +42,9 @@
 ### QQ群请加
 805865662
 
-### 免责声明
+### 运行边界
 
-本项目**仅用于授权的渗透测试、红队研究和防御性安全实验**。用户在对任何非自有系统进行测试前，必须获得适当授权。作者对未经授权或非法使用不承担任何责任。
+运行时把任务目标视为外层已完成范围校验的操作资产或本地沙箱，不在模型内重复索要范围材料。不可逆文件覆盖和对外提交仍保留显式工程确认，以避免误操作。
 
 ## 项目初衷
 
@@ -61,12 +60,13 @@ GoalContract
   -> TerminalJudge
 ```
 
-v2.0.0 已移除旧 `phase -> router -> pack -> leaf` 路由、正则领域路由、Markdown ExitGate 和第二套 Automation 状态机。领域名称只作为资产与技术标签，不再控制运行时分支。
+v2.1.0 使用统一的 `generic-adaptive` 运行时，不再使用旧 `phase -> router -> pack -> leaf` 路由、正则领域路由、Markdown ExitGate 或第二套 Automation 状态机。领域名称只作为资产与技术标签，不再控制运行时分支。
 
 ## 核心特性
 
 - **显式开启**：默认始终为 `normal`，红队 operation 仅在收到模式命令后启动。
-- **类型化执行**：八套版本化 TOML 工作流覆盖 Web/API、外网面、源码、二进制/移动端、身份/云、对抗模拟、模型安全和通用自适应任务。
+- **统一自适应执行**：仅保留一套版本化 `generic-adaptive` 工作流；场景、资产和技术只作为目标元数据与动态假设，不再复制控制流。
+- **双层 Prompt Rewrite**：默认 Hook 在本地生成无损 Research Brief；可选 loopback Proxy 在主模型请求前调用当前模型或自定义中转站完成真实改写。
 - **真实工具协作**：通过 stdio 或 Streamable HTTP 发现 MCP 工具；Host 独占能力可按 output contract 自动执行并回灌，无需用户搬运结果。
 - **持久化与批次自治**：SQLite WAL、事件、租约、幂等键和独立 run ID 支持中断恢复、并发保护、多目标批次和取消清理。
 - **证据驱动终态**：只有经过语义验证且具备目标绑定、父证据血缘、复现、影响、覆盖和回滚证明的结果，才能满足 `TerminalJudge`。
@@ -106,6 +106,7 @@ python scripts/install.py --project-home PATH --agents-home AGENTS_PATH --enable
 | `--enable-custom-skill-dirs` | 让运行时优先使用 manifest 记录的自定义 Skill 目录 |
 | `--log-root PATH` | 指定 SQLite、事件和证据产物的持久化根目录 |
 | `--model MODEL` | 可选：覆盖自动检测结果，显式指定安装时使用的系统层模型 profile |
+| `--enable-rewrite-proxy` | 启用 App/CLI 共用的本地 Rewrite Proxy，并保存原 `model_provider` 供卸载恢复 |
 | `--dry-run` | 只预览安装、升级或卸载操作，不写入文件 |
 | `--uninstall` | 删除 manifest 管理的文件、Hook、配置值和 `AGENTS.md` 区块 |
 
@@ -138,6 +139,7 @@ Hook 会话状态保存在 `$CODEX_HOME/redteam-mode/state/sessions`。可通过
 
 - 保留已有用户配置，并只管理安装器写入的字段和文件。
 - 合并 `config.toml`、Hook、系统层模型 profile catalog、Runtime MCP server、工作流和唯一边界 Skill。
+- 部署 `rewrite_proxy.py` 与跨平台启动脚本；仅在显式启用时把 `model_provider` 切到 loopback Provider。
 - 使用 pending transaction 部署候选版本，完成运行时验证后才原子提交 manifest。
 - 升级时清理旧版受管路径，并对越界路径、无效 manifest、TOML 或 Hook 配置执行预检。
 - 卸载时只移除未被用户修改的受管内容，保留用户自定义配置、提示词、Hook 和 `AGENTS.md` 内容。
@@ -151,6 +153,28 @@ Hook 会话状态保存在 `$CODEX_HOME/redteam-mode/state/sessions`。可通过
 5. Host Agent 独占工具会收到 `next_action_spec`、gate、exit condition 和 output contract，并自动把 observation 回灌 Runtime。
 6. `TerminalJudge` 证明所有目标准则、证据血缘和清理状态后生成最终结果。
 7. 输入 `/redteam off`、`退出红队模式` 或 `关闭红队模式` 返回 normal 模式。
+
+### Prompt Rewrite
+
+默认 `context` 模式不改变 Provider：仅在用户显式开启红队模式后，Hook 才按“动作优先于技术对象”解析 Prompt，将普通开发请求排除在红队派发之外，继承短追问上下文，并输出 Clause 哈希、taxonomy、risk level、证据要求与可复现验证方案。用户未要求时不强制输出修复方案。
+
+需要真实前置改写时：
+
+```bash
+python scripts/install.py --enable-rewrite-proxy
+```
+
+请求链路为：
+
+```text
+Codex App/CLI
+  -> 127.0.0.1 Rewrite Proxy
+  -> Rewrite Provider（仅收到改写规则 + 当前原始 Prompt）
+  -> 本地注入四条研究会话历史（仅当请求已包含 Hook 红队上下文）
+  -> 原 Codex Provider（收到原请求结构以及替换后的用户 Prompt、系统指令和工具定义）
+```
+
+`provider = "inherit"` 与 `model = "inherit"` 默认继承原 Provider 和当前 Codex 模型。若使用单独中转站，只需在 `model_providers` 中增加 Provider，并修改 `[redteam.prompt_rewrite]` 的 `provider`、`model` 和 `api_key_env`。normal 模式请求原样透传；Relay 丢失 URL、IP、CVE、路径、CLI 参数、Clause、高风险标记、上下文集合或语义保真标志时，Proxy 自动使用本地确定性改写。卸载会恢复原 `model_provider`。
 
 CLI 可选 wrapper 会为当前进程锁定一个模型族 profile：
 
@@ -166,7 +190,7 @@ codex-redteam --model gpt-5.6-sol
 |---|---:|---|
 | `normal` | 是 | 普通编码、文档和研究任务；不启动红队 operation，也不注入 operation doctrine |
 | `redteam-light` | 否 | 通过 `/redteam on` 或 `/redteam light` 显式启动持久化 Goal/Workflow 执行 |
-| `redteam-full` | 否 | 显式完整模式标记；v2.0.0 与 light 共用同一 Runtime、证据规则和 TerminalJudge 终态门槛 |
+| `redteam-full` | 否 | 显式完整模式标记；v2.1.0 与 light 共用同一 Runtime、证据规则和 TerminalJudge 终态门槛 |
 
 ## 验证
 
@@ -183,7 +207,8 @@ python scripts/validate.py --codex-home .
 
 安装器和测试覆盖：
 
-- 启动 Runtime MCP server 并加载全部八套工作流。
+- 启动 Runtime MCP server 并验证唯一 `generic-adaptive` 工作流。
+- 验证 Responses/Chat Completions Rewrite Proxy、显式模式门控、普通开发透传、Relay 数据隔离、动作/风险保真、锚点保真和确定性回退。
 - 验证配置合并、事务升级、App/CLI Hook、模型 profile 和卸载保护。
 - 验证并发启动与恢复、租约、幂等结果、批次取消和清理状态。
 - 拒绝伪终态、伪证据、错误目标绑定和缺少可信父节点的派生证据。
@@ -195,7 +220,8 @@ GitHub Actions 使用 Python 3.11 在 Windows、Ubuntu 和 macOS 上运行完整
 
 - 实际执行能力取决于当前可发现的 MCP 工具或 Host Agent 工具；缺少能力时 operation 会保留 pending handoff 或 deferred action。
 - 名称、描述和输入 schema 都不足以表达能力的 MCP 工具，需要在 `automation.tool_capabilities` 中显式声明。
-- `redteam-light` 与 `redteam-full` 在 v2.0.0 中共用执行引擎和终态规则，模式标签本身不会选择不同工作流。
+- `redteam-light` 与 `redteam-full` 在 v2.1.0 中共用执行引擎和终态规则，模式标签本身不会选择不同工作流。
+- Rewrite Proxy 是显式启用的 Provider 级能力；默认 `context` 模式仍保持红队模式门控和零常驻服务。
 - 单个证据 payload 上限为 4 MiB；常规状态只内联 64 KiB，较大证据需要使用 `redteam_evidence` 获取。
 - 新任务会重置为 normal；切换模型族需要新建任务或重新启动 wrapper。
 

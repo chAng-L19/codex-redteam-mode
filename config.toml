@@ -7,17 +7,9 @@ automation = true
 
 [automation]
 mode = "active"
-tool_priority = [
-  "WebFetch",
-  "Browser MCP",
-  "IDA MCP",
-  "JADX MCP",
-  "Current AI Agent",
-]
-max_actions_per_cycle = 16
+max_actions_per_cycle = 64
 action_timeout_seconds = 60
 max_retries_per_action = 2
-max_domains = 7
 max_hypothesis_branches = 4
 persist_run_state = true
 
@@ -35,3 +27,22 @@ CODEX_HOME = "."
 "gpt-5.5*" = "Jailbreak.gpt-5.5.md"
 "gpt-5.4*" = "Jailbreak.gpt-5.4.md"
 default = "Jailbreak.default.md"
+
+[redteam.prompt_rewrite]
+mode = "context"
+provider = "inherit"
+model = "inherit"
+timeout_seconds = 12
+api_key_env = "CODEX_REDTEAM_REWRITE_API_KEY"
+
+[redteam.rewrite_proxy]
+enabled = false
+upstream_provider = ""
+listen_host = "127.0.0.1"
+listen_port = 8765
+
+[model_providers.codex-redteam-rewrite-proxy]
+name = "Codex Red-Team Rewrite Proxy"
+base_url = "http://127.0.0.1:8765/v1"
+wire_api = "responses"
+requires_openai_auth = true

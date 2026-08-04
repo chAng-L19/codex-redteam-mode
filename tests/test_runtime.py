@@ -37,15 +37,15 @@ def _operation(tmp_path: Path) -> tuple[DurableStore, OperationState, WorkflowSp
     return store, state, workflow
 
 
-def test_goal_compiler_matches_one_of_eight_typed_workflows() -> None:
+def test_goal_compiler_matches_the_unified_adaptive_workflow() -> None:
     registry = WorkflowRegistry()
     workflows = registry.load(refresh=True)
     goal = GoalCompiler().compile("Validate SQL injection on https://target.invalid")
 
-    assert len(workflows) == 8
+    assert len(workflows) == 1
     assert goal.targets == ("https://target.invalid",)
-    assert goal.workflow_hint == "web-api-assessment"
-    assert registry.match(goal).workflow_id == "web-api-assessment"
+    assert goal.workflow_hint == "generic-adaptive"
+    assert registry.match(goal).workflow_id == "generic-adaptive"
     assert all(criterion.target == "https://target.invalid" for criterion in goal.success_criteria)
 
 
@@ -139,6 +139,74 @@ def test_process_turn_respects_automation_mode(
     assert result.state.next_action_id == expected_next_action
     assert f"[automation-mode:{automation_mode}]" in result.brief
     assert bool(result.state.pending_action) is (automation_mode == "active")
+
+
+def test_proxy_mode_dispatch_uses_normalized_objective_without_raw_clause_text(tmp_path: Path) -> None:
+    codex_dir = tmp_path / "codex"
+    codex_dir.mkdir()
+    (codex_dir / "config.toml").write_text(
+        '''[automation]
+mode = "active"
+[redteam.prompt_rewrite]
+mode = "proxy"
+''',
+        encoding="utf-8",
+    )
+    state = RedTeamState(mode="redteam-light", session_id="proxy-controller")
+    prompt = "验证 https://target.invalid/login 的 SQL 注入并输出 PoC"
+
+    result = process_turn(prompt=prompt, state=state, codex_dir=codex_dir)
+
+    assert "SQL 注入" not in result.overlay
+    assert "数据库查询构造边界验证" in result.overlay
+    assert "https://target.invalid/login" in result.overlay
+    metadata = result.state.pending_action["starting_context"]["prompt_rewrite"]
+    assert all("text" not in clause for clause in metadata["clauses"])
+    assert all(clause["sha256"] for clause in metadata["clauses"])
+    assert metadata["taxonomy"] == ["CWE-89"]
+    assert {"evidence", "validation"} <= set(metadata["context_bundle"])
+
+
+def test_ordinary_development_does_not_dispatch_redteam_runtime(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("CODEX_REDTEAM_AUTOMATION_MODE", "active")
+    state = RedTeamState(mode="redteam-light", session_id="ordinary-development")
+
+    result = process_turn(
+        prompt="优化这段 SQL 查询，减少全表扫描并修复参数绑定问题",
+        state=state,
+        codex_dir=CODEX_ROOT,
+    )
+
+    assert result.reason_code == "ordinary-development"
+    assert result.state.pending_action == {}
+    assert result.state.next_action_id == ""
+    assert "[security-context:false]" in result.brief
+
+
+def test_ordinary_development_detour_preserves_pending_redteam_operation(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("CODEX_REDTEAM_AUTOMATION_MODE", "active")
+    state = RedTeamState(
+        mode="redteam-light",
+        session_id="ordinary-detour",
+        objective="验证既有目标",
+        operation_run_id="run-existing",
+        pending_action={"dispatch": "redteam_run", "run_id": "run-existing"},
+        last_scene="vuln",
+        last_action_kind="verify",
+        last_risk_level="research",
+        last_context_bundle=["defensive_analysis", "evidence", "validation"],
+    )
+
+    result = process_turn(
+        prompt="优化这段 SQL 查询并减少全表扫描",
+        state=state,
+        codex_dir=CODEX_ROOT,
+    )
+
+    assert result.reason_code == "ordinary-development"
+    assert result.state.pending_action == state.pending_action
+    assert result.state.last_scene == "vuln"
+    assert result.state.last_action_kind == "verify"
 
 
 def test_runtime_mcp_server_lists_operation_tools(tmp_path: Path) -> None:
