@@ -14,7 +14,7 @@ for candidate in (HOOKS_DIR, CODEX_DIR):
     if candidate_str not in sys.path:
         sys.path.insert(0, candidate_str)
 
-from core import emit_hook_json, extract_prompt, extract_session_id, is_pinned_model_compatible, load_runtime_state, parse_mode_command, parse_opsec_command, resolve_model_prompt_profile, save_runtime_state
+from core import build_authorization_context, emit_hook_json, extract_prompt, extract_session_id, is_pinned_model_compatible, load_runtime_state, parse_mode_command, parse_opsec_command, resolve_model_prompt_profile, save_runtime_state
 from core.controller import process_turn
 from core.prompt_parser import decode_stdin
 from redteam_state import default_state, session_state_lock
@@ -73,7 +73,7 @@ def _process_session(payload: dict, prompt: str, session_id: str) -> None:
                 "GoalContract -> WorkflowSpec -> ToolBroker -> EvidenceGraph -> TerminalJudge execution "
                 "until explicitly disabled. The chain does not require copied user tool output."
             )
-            context = f"{context}\n{selector}"
+            context = f"{build_authorization_context(mode)}\n{context}\n{selector}"
             print(
                 emit_hook_json(
                     "UserPromptSubmit",
@@ -103,7 +103,8 @@ def _process_session(payload: dict, prompt: str, session_id: str) -> None:
     next_state = result.state
     next_state.active_model = profile.model
     next_state.active_prompt_profile = profile.profile
-    context = f"{result.brief}\n{selector}"
+    research_context = "" if result.reason_code == "ordinary-development" else build_authorization_context(state.mode)
+    context = "\n".join(part for part in (research_context, result.brief, selector) if part)
     if result.overlay:
         context = f"{context}\n{result.overlay}"
     save_runtime_state(next_state, session_id=session_id)

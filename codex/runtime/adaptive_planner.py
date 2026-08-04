@@ -3,76 +3,16 @@ from __future__ import annotations
 from dataclasses import replace
 from typing import Any, Mapping, Sequence
 
-from .models import ActionSpec, GoalContract, SuccessPredicate, WorkflowSpec
+from .models import GoalContract, WorkflowSpec
 from .workflow_registry import WorkflowRegistry
 
 
 class AdaptivePlanner:
-    def __init__(self, *, max_domains: int = 7, max_hypothesis_branches: int = 4) -> None:
-        self.max_domains = max(1, min(7, int(max_domains)))
+    def __init__(self, *, max_hypothesis_branches: int = 4) -> None:
         self.max_hypothesis_branches = max(1, min(8, int(max_hypothesis_branches)))
 
     def plan(self, goal: GoalContract, registry: WorkflowRegistry) -> WorkflowSpec:
-        workflows = registry.match_many(goal, limit=self.max_domains)
-        return workflows[0] if len(workflows) == 1 else self.compose(workflows)
-
-    def compose(self, workflows: tuple[WorkflowSpec, ...]) -> WorkflowSpec:
-        actions: list[ActionSpec] = []
-        report_dependencies: list[str] = []
-        required_artifacts: list[str] = []
-        match_tags: list[str] = []
-
-        for workflow in workflows:
-            prefix = workflow.workflow_id
-            included = tuple(action for action in workflow.actions if action.expected_artifact != "final_report")
-            id_map = {action.action_id: f"{prefix}__{action.action_id}" for action in included}
-            for action in included:
-                actions.append(
-                    replace(
-                        action,
-                        action_id=id_map[action.action_id],
-                        name=f"[{workflow.name}] {action.name}",
-                        depends_on=tuple(id_map[item] for item in action.depends_on if item in id_map),
-                        attack_tags=tuple(dict.fromkeys((*action.attack_tags, workflow.workflow_id))),
-                    )
-                )
-            terminal_actions = [
-                id_map[action.action_id]
-                for action in included
-                if not any(action.action_id in candidate.depends_on for candidate in included)
-            ]
-            report_dependencies.extend(terminal_actions)
-            required_artifacts.extend(item for item in workflow.required_artifacts if item != "final_report")
-            match_tags.extend(workflow.match_tags)
-
-        actions.append(
-            ActionSpec(
-                action_id="composite-report",
-                name="Build the cross-domain evidence report",
-                required_capabilities=("report_generation", "reasoning"),
-                expected_artifact="final_report",
-                verifier="final_report",
-                depends_on=tuple(dict.fromkeys(report_dependencies)),
-                risk="safe",
-            )
-        )
-        workflow_ids = tuple(workflow.workflow_id for workflow in workflows)
-        return WorkflowSpec(
-            workflow_id=f"composite-{'-'.join(workflow_ids)}"[:128],
-            version=max(workflow.version for workflow in workflows),
-            name="Cross-domain adaptive operation",
-            description=f"Composed execution across: {', '.join(workflow_ids)}",
-            match_tags=tuple(dict.fromkeys(match_tags)),
-            actions=tuple(actions),
-            terminal_predicates=(
-                SuccessPredicate(kind="workflow_actions_complete", subject="required"),
-                SuccessPredicate(kind="artifact_verified", subject="reproduction_artifact"),
-                SuccessPredicate(kind="artifact_verified", subject="impact_proof"),
-                SuccessPredicate(kind="artifact_verified", subject="cleanup_proof"),
-                SuccessPredicate(kind="artifact_verified", subject="final_report"),
-            ),
-            required_artifacts=tuple(dict.fromkeys((*required_artifacts, "final_report"))),
-        )
+        return registry.match(goal)
 
     def expand_hypotheses(
         self,

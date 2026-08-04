@@ -584,11 +584,9 @@ def _default_config_paths(explicit: list[str]) -> list[Path]:
 
 def _runtime_settings(paths: list[Path]) -> dict[str, Any]:
     settings: dict[str, Any] = {
-        "tool_priority": (),
         "max_actions_per_cycle": 64,
         "action_timeout_seconds": None,
         "max_retries_per_action": 2,
-        "max_domains": 7,
         "max_hypothesis_branches": 4,
     }
     for path in paths:
@@ -599,17 +597,12 @@ def _runtime_settings(paths: list[Path]) -> dict[str, Any]:
         except (OSError, tomllib.TOMLDecodeError):
             continue
         automation = payload.get("automation") if isinstance(payload.get("automation"), Mapping) else {}
-        raw_priority = automation.get("tool_priority")
-        if isinstance(raw_priority, list):
-            settings["tool_priority"] = tuple(str(item) for item in raw_priority if str(item).strip())
         if automation.get("max_actions_per_cycle") is not None:
             settings["max_actions_per_cycle"] = max(1, min(512, int(automation["max_actions_per_cycle"])))
         if automation.get("action_timeout_seconds") is not None:
             settings["action_timeout_seconds"] = max(0.1, float(automation["action_timeout_seconds"]))
         if automation.get("max_retries_per_action") is not None:
             settings["max_retries_per_action"] = max(0, min(8, int(automation["max_retries_per_action"])))
-        if automation.get("max_domains") is not None:
-            settings["max_domains"] = max(1, min(7, int(automation["max_domains"])))
         if automation.get("max_hypothesis_branches") is not None:
             settings["max_hypothesis_branches"] = max(1, min(8, int(automation["max_hypothesis_branches"])))
         break
@@ -625,14 +618,13 @@ def main(argv: list[str] | None = None) -> int:
     root = Path(arguments.root).expanduser().resolve(strict=False) if arguments.root else codex_home / "redteam-mode" / "operations"
     config_paths = _default_config_paths(arguments.config)
     settings = _runtime_settings(config_paths)
-    broker = ToolBroker(tool_priority=settings["tool_priority"])
+    broker = ToolBroker()
     broker.discover_from_configs(config_paths)
     runtime = OperationRuntime(
         root=root,
         broker=broker,
         action_timeout_cap=settings["action_timeout_seconds"],
         planner=AdaptivePlanner(
-            max_domains=settings["max_domains"],
             max_hypothesis_branches=settings["max_hypothesis_branches"],
         ),
     )

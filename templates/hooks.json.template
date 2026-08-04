@@ -20,7 +20,7 @@
             "type": "command",
             "command": "{{PROMPT_COMMAND}}",
             "commandWindows": "{{PROMPT_COMMAND_WINDOWS}}",
-            "statusMessage": "Checking mode-gated offensive routing",
+            "statusMessage": "Dispatching durable red-team workflow",
             "timeout": 15
           }
         ]

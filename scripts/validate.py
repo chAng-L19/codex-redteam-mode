@@ -17,6 +17,7 @@ import subprocess
 import sys
 import tempfile
 import tomllib
+import urllib.parse
 from pathlib import Path
 from typing import List, Tuple
 
@@ -30,8 +31,11 @@ def configure_stdio() -> None:
 
 REQUIRED_CODEX_FILES = [
     "redteam-mode/launcher.py",
+    "redteam-mode/rewrite_proxy.py",
     "redteam-mode/codex-redteam.cmd",
     "redteam-mode/codex-redteam",
+    "redteam-mode/codex-redteam-proxy.cmd",
+    "redteam-mode/codex-redteam-proxy",
     "hooks/session-start-context.py",
     "hooks/hook-security-context-hook.py",
     "hooks/redteam_state.py",
@@ -58,13 +62,6 @@ REQUIRED_CODEX_FILES = [
     "runtime/operation_runtime.py",
     "runtime/mcp_server.py",
     "workflows/generic-adaptive.toml",
-    "workflows/web-api-assessment.toml",
-    "workflows/external-assessment.toml",
-    "workflows/source-assisted-review.toml",
-    "workflows/binary-mobile-analysis.toml",
-    "workflows/identity-cloud-operation.toml",
-    "workflows/adversary-emulation.toml",
-    "workflows/model-security-assessment.toml",
     "prompts/Jailbreak.default.md",
     "prompts/Jailbreak.gpt-5.4.md",
     "prompts/Jailbreak.gpt-5.5.md",
@@ -130,9 +127,9 @@ def check_runtime_operational(codex_root: Path) -> Tuple[bool, List[str]]:
         matched = WorkflowRegistry().match(goal)
     except Exception as exc:
         return False, [f"runtime: workflow validation failed - {exc}"]
-    if len(workflows) != 8 or matched.workflow_id != "web-api-assessment":
+    if len(workflows) != 1 or matched.workflow_id != "generic-adaptive":
         return False, [f"runtime: workflow registry mismatch ({len(workflows)}, {matched.workflow_id})"]
-    messages.append("runtime: 8 typed workflows valid")
+    messages.append("runtime: unified generic-adaptive workflow valid")
     with tempfile.TemporaryDirectory() as temporary:
         environment = dict(os.environ)
         environment["PYTHONPATH"] = str(codex_root)
@@ -340,11 +337,15 @@ def validate_install(codex_home: Path, manifest_override: Path | None = None) ->
     if source_tree_mode:
         installed_launchers = {
             "redteam-mode/launcher.py",
+            "redteam-mode/rewrite_proxy.py",
             "redteam-mode/codex-redteam.cmd",
             "redteam-mode/codex-redteam",
+            "redteam-mode/codex-redteam-proxy.cmd",
+            "redteam-mode/codex-redteam-proxy",
         }
         required_files = [
             "launcher.py",
+            "rewrite_proxy.py",
             *[rel for rel in REQUIRED_CODEX_FILES if rel not in installed_launchers],
         ]
     for rel in required_files:
@@ -432,6 +433,29 @@ def validate_install(codex_home: Path, manifest_override: Path | None = None) ->
                 all_ok = False
             else:
                 messages.append("config.toml: durable MCP runtime configured")
+            redteam = config_data.get("redteam") if isinstance(config_data.get("redteam"), dict) else {}
+            rewrite = redteam.get("prompt_rewrite") if isinstance(redteam.get("prompt_rewrite"), dict) else {}
+            proxy = redteam.get("rewrite_proxy") if isinstance(redteam.get("rewrite_proxy"), dict) else {}
+            if str(rewrite.get("mode") or "").casefold() not in {"context", "proxy", "off", "false", "0"}:
+                messages.append("config.toml: invalid prompt rewrite mode")
+                all_ok = False
+            if proxy.get("enabled") is True:
+                provider_name = str(config_data.get("model_provider") or "")
+                upstream_name = str(proxy.get("upstream_provider") or "")
+                providers = config_data.get("model_providers") if isinstance(config_data.get("model_providers"), dict) else {}
+                local_provider = providers.get("codex-redteam-rewrite-proxy") if isinstance(providers.get("codex-redteam-rewrite-proxy"), dict) else {}
+                parsed = urllib.parse.urlsplit(str(local_provider.get("base_url") or ""))
+                if (
+                    provider_name != "codex-redteam-rewrite-proxy"
+                    or not upstream_name
+                    or upstream_name == provider_name
+                    or parsed.hostname not in {"127.0.0.1", "::1", "localhost"}
+                    or str(rewrite.get("mode") or "").casefold() != "proxy"
+                ):
+                    messages.append("config.toml: rewrite proxy routing is inconsistent")
+                    all_ok = False
+                else:
+                    messages.append(f"config.toml: rewrite proxy enabled -> {upstream_name}")
         except (OSError, tomllib.TOMLDecodeError) as e:
             messages.append(f"config.toml: INVALID TOML - {e}")
             all_ok = False

@@ -1,19 +1,33 @@
 # Codex red-team profile
-model_instructions_file = './instruction.ctf.md'
+model_instructions_file = './redteam-mode/system-instructions.md'
 
 [features]
 hooks = true
 automation = true
 
 [automation]
-mode = "assisted"
-tool_priority = [
-  "WebFetch",
-  "Browser MCP",
-  "IDA MCP",
-  "JADX MCP",
-  "Current AI Agent",
-]
-mcp_inventory_files = []
-require_scope_for_network = true
-allow_restricted_actions = false
+mode = "active"
+max_actions_per_cycle = 64
+action_timeout_seconds = 60
+max_retries_per_action = 2
+max_hypothesis_branches = 4
+persist_run_state = true
+
+[redteam.prompt_rewrite]
+mode = "context"
+provider = "inherit"
+model = "inherit"
+timeout_seconds = 12
+api_key_env = "CODEX_REDTEAM_REWRITE_API_KEY"
+
+[redteam.rewrite_proxy]
+enabled = false
+upstream_provider = ""
+listen_host = "127.0.0.1"
+listen_port = 8765
+
+[model_providers.codex-redteam-rewrite-proxy]
+name = "Codex Red-Team Rewrite Proxy"
+base_url = "http://127.0.0.1:8765/v1"
+wire_api = "responses"
+requires_openai_auth = true

@@ -3,7 +3,9 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
 import sys
+import tomllib
 from pathlib import Path
 
 HOOKS_DIR = Path(__file__).resolve().parent
@@ -13,9 +15,42 @@ for candidate in (HOOKS_DIR, CODEX_DIR):
     if candidate_str not in sys.path:
         sys.path.insert(0, candidate_str)
 
-from core import build_prompt_chain_notice, emit_hook_json, extract_session_id, extract_session_start_source, load_runtime_state, reset_runtime_state, resolve_model_prompt_profile, save_runtime_state
+from core import build_authorization_context, build_prompt_chain_notice, emit_hook_json, extract_session_id, extract_session_start_source, load_runtime_state, reset_runtime_state, resolve_model_prompt_profile, save_runtime_state
 from core.prompt_parser import decode_stdin
 from redteam_state import session_state_lock
+
+
+def _ensure_rewrite_proxy() -> str:
+    explicit = os.environ.get("CODEX_REDTEAM_CONFIG", "").strip()
+    candidates = [Path(explicit).expanduser()] if explicit else []
+    candidates.extend((CODEX_DIR / "config.toml", CODEX_DIR.parent / "config.toml"))
+    config_path = next((path for path in candidates if path.is_file()), None)
+    if config_path is None:
+        return ""
+    try:
+        config = tomllib.loads(config_path.read_text(encoding="utf-8-sig"))
+    except (OSError, tomllib.TOMLDecodeError):
+        return ""
+    redteam = config.get("redteam") if isinstance(config.get("redteam"), dict) else {}
+    proxy = redteam.get("rewrite_proxy") if isinstance(redteam.get("rewrite_proxy"), dict) else {}
+    if proxy.get("enabled") is not True:
+        return ""
+    scripts = (CODEX_DIR / "redteam-mode" / "rewrite_proxy.py", CODEX_DIR / "rewrite_proxy.py")
+    script = next((path for path in scripts if path.is_file()), None)
+    if script is None:
+        return "[rewrite-proxy:error missing-script]"
+    try:
+        completed = subprocess.run(
+            [sys.executable, "-B", str(script), "--config", str(config_path), "--ensure"],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=8,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return "[rewrite-proxy:error start-failed]"
+    return "[rewrite-proxy:ready]" if completed.returncode == 0 else "[rewrite-proxy:error unhealthy]"
 
 
 def _process_session(payload: dict, session_id: str) -> None:
@@ -37,6 +72,12 @@ def _process_session(payload: dict, session_id: str) -> None:
     notice = build_prompt_chain_notice(CODEX_DIR, mode=state.mode)
     if notice:
         context = f"{context}\n{notice}"
+    authorization = build_authorization_context(state.mode)
+    if authorization:
+        context = f"{context}\n{authorization}"
+    proxy_status = _ensure_rewrite_proxy()
+    if proxy_status:
+        context = f"{context}\n{proxy_status}"
 
     profile = resolve_model_prompt_profile(CODEX_DIR, payload=payload)
     state.active_model = profile.model

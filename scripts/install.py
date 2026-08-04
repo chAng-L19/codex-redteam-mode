@@ -13,10 +13,11 @@ except ModuleNotFoundError as exc:
         file=sys.stderr,
     )
     raise SystemExit(1) from exc
-APP_NAME='codex-redteam-optin-mode'; APP_VERSION='2.0.0'; PROMPT_OWNERSHIP_VERSION=1
+APP_NAME='codex-redteam-optin-mode'; APP_VERSION='2.1.0'; PROMPT_OWNERSHIP_VERSION=1
 AGENTS_BLOCK_START='<!-- codex-redteam-optin-mode:start -->'; AGENTS_BLOCK_END='<!-- codex-redteam-optin-mode:end -->'
 SESSION_STATUS='Loading session mode context'; PROMPT_STATUS='Dispatching durable red-team workflow'; LEGACY_STOP_STATUS='Recording refusal backstop state'
 SYSTEM_INSTRUCTIONS_CONFIG_VALUE='./redteam-mode/system-instructions.md'
+REWRITE_PROXY_PROVIDER='codex-redteam-rewrite-proxy'
 SYSTEM_PROFILE_START='<!-- codex-redteam-system-profile:start -->'; SYSTEM_PROFILE_END='<!-- codex-redteam-system-profile:end -->'
 MODEL_CATALOG_START='<!-- codex-redteam-model-profiles:start -->'; MODEL_CATALOG_END='<!-- codex-redteam-model-profiles:end -->'
 DEFAULT_MODEL_PROFILE_FILES={'gpt-5.6*':'Jailbreak.gpt-5.6.md','gpt-5.5*':'Jailbreak.gpt-5.5.md','gpt-5.4*':'Jailbreak.gpt-5.4.md','default':'Jailbreak.default.md'}
@@ -180,13 +181,16 @@ def write_system_instructions(destination:Path,content:str,dry_run:bool)->None:
     if dry_run: return
     destination.parent.mkdir(parents=True,exist_ok=True); temporary=destination.with_name(f'{destination.name}.tmp'); temporary.write_text(content,encoding='utf-8'); os.replace(temporary,destination)
 def write_launcher_scripts(codex_home:Path,dry_run:bool)->None:
-    launcher_dir=codex_home/'redteam-mode'; windows_path=launcher_dir/'codex-redteam.cmd'; posix_path=launcher_dir/'codex-redteam'
-    info(f'write model-aware launchers -> {windows_path}, {posix_path}')
+    launcher_dir=codex_home/'redteam-mode'; windows_path=launcher_dir/'codex-redteam.cmd'; posix_path=launcher_dir/'codex-redteam'; proxy_windows=launcher_dir/'codex-redteam-proxy.cmd'; proxy_posix=launcher_dir/'codex-redteam-proxy'
+    info(f'write model-aware launchers -> {windows_path}, {posix_path}, {proxy_windows}, {proxy_posix}')
     if dry_run: return
     launcher_dir.mkdir(parents=True,exist_ok=True); python_cmd=str(Path(sys.executable).resolve(strict=False))
     windows_path.write_text(f'@echo off\r\n"{python_cmd}" -B "%~dp0launcher.py" %*\r\n',encoding='utf-8')
     posix_path.write_text(f'#!/bin/sh\nexec {shlex.quote(python_cmd)} -B "$(dirname "$0")/launcher.py" "$@"\n',encoding='utf-8')
     posix_path.chmod(posix_path.stat().st_mode|0o111)
+    proxy_windows.write_text(f'@echo off\r\n"{python_cmd}" -B "%~dp0rewrite_proxy.py" --config "%~dp0..\\config.toml" %*\r\n',encoding='utf-8')
+    proxy_posix.write_text(f'#!/bin/sh\nexec {shlex.quote(python_cmd)} -B "$(dirname "$0")/rewrite_proxy.py" --config "$(dirname "$0")/../config.toml" "$@"\n',encoding='utf-8')
+    proxy_posix.chmod(proxy_posix.stat().st_mode|0o111)
 def _collect_toml_ownership(value:object,path:tuple[str,...],added_values:list[dict],added_tables:list[list[str]])->None:
     if _toml_container(value):
         added_tables.append(list(path))
@@ -252,16 +256,22 @@ def prepare_config_merge(src:Path,dst:Path,previous_config_merge:object=None,for
     existing_text=dst.read_text(encoding='utf-8-sig') if dst.exists() else ''
     template=tomlkit.parse(template_text); existing=tomlkit.parse(existing_text) if existing_text.strip() else tomlkit.document()
     previous=_valid_config_merge(previous_config_merge,dst); retained_values=[]; retained_tables=[]; previous_replaced={}
-    for entry in previous.get('added_values',[]):
-        path=entry.get('path') if isinstance(entry,dict) else None
-        current=_toml_value_at(existing,path) if isinstance(path,list) and path and all(isinstance(key,str) for key in path) else _MISSING
-        if current is not _MISSING and _toml_plain(current)==entry.get('value'): retained_values.append(entry)
-    for path in previous.get('added_tables',[]):
-        current=_toml_value_at(existing,path) if isinstance(path,list) and path and all(isinstance(key,str) for key in path) else _MISSING
-        if current is not _MISSING and _toml_container(current): retained_tables.append(path)
     for entry in previous.get('replaced_values',[]):
         path=entry.get('path') if isinstance(entry,dict) else None
         if isinstance(path,list) and path and all(isinstance(key,str) for key in path): previous_replaced[tuple(path)]=entry
+    for entry in previous.get('added_values',[]):
+        path=entry.get('path') if isinstance(entry,dict) else None
+        current=_toml_value_at(existing,path) if isinstance(path,list) and path and all(isinstance(key,str) for key in path) else _MISSING
+        replacement=previous_replaced.get(tuple(path)) if isinstance(path,list) else None
+        current_plain=_toml_plain(current) if current is not _MISSING else _MISSING
+        if current_plain==entry.get('value') or (
+            isinstance(replacement,dict)
+            and current_plain==replacement.get('value')
+            and replacement.get('previous_value')==entry.get('value')
+        ): retained_values.append(entry)
+    for path in previous.get('added_tables',[]):
+        current=_toml_value_at(existing,path) if isinstance(path,list) and path and all(isinstance(key,str) for key in path) else _MISSING
+        if current is not _MISSING and _toml_container(current): retained_tables.append(path)
     added_values=[]; added_tables=[]; changed=_merge_toml_missing(template,existing,(),added_values,added_tables)
     replaced_values=[]
     for path_tuple,managed_value in (forced_values or {}).items():
@@ -496,7 +506,7 @@ def run_validate(repo_root:Path,codex_home:Path,dry_run:bool,manifest_candidate:
 def repo_skill_dirs(repo_root:Path)->list[Path]:
     skills_root=repo_root/'agents'/'skills'; return sorted(path for path in skills_root.iterdir() if path.is_dir() and (path/'SKILL.md').is_file()) if skills_root.exists() else []
 def managed_targets(repo_root:Path,codex_home:Path,agents_home:Path)->list[Path]:
-    targets=[codex_home/'redteam-mode'/'system-instructions.md',codex_home/'redteam-mode'/'launcher.py',codex_home/'redteam-mode'/'codex-redteam.cmd',codex_home/'redteam-mode'/'codex-redteam',codex_home/'hooks'/'session-start-context.py',codex_home/'hooks'/'hook-security-context-hook.py',codex_home/'hooks'/'redteam_state.py',codex_home/'hooks'/'core',codex_home/'runtime',codex_home/'workflows']
+    targets=[codex_home/'redteam-mode'/'system-instructions.md',codex_home/'redteam-mode'/'launcher.py',codex_home/'redteam-mode'/'rewrite_proxy.py',codex_home/'redteam-mode'/'codex-redteam.cmd',codex_home/'redteam-mode'/'codex-redteam',codex_home/'redteam-mode'/'codex-redteam-proxy.cmd',codex_home/'redteam-mode'/'codex-redteam-proxy',codex_home/'hooks'/'session-start-context.py',codex_home/'hooks'/'hook-security-context-hook.py',codex_home/'hooks'/'redteam_state.py',codex_home/'hooks'/'core',codex_home/'runtime',codex_home/'workflows']
     targets.extend(agents_home/'skills'/skill_dir.name for skill_dir in repo_skill_dirs(repo_root)); return targets
 def legacy_cleanup_targets(codex_home:Path,agents_home:Path)->list[Path]:
     return [codex_home/'hooks'/'legacy-redteam-hook.py', codex_home/'session_patcher', agents_home/'skills'/'red-team-command-doctrine-old']
@@ -657,7 +667,7 @@ def uninstall(repo_root:Path,codex_home:Path,agents_home:Path,agents_file:Path,d
     if agents_file != codex_home/'AGENTS.md': remove_agents_block(codex_home/'AGENTS.md',dry_run)
     info(f'apply managed hook removal -> {hooks_plan[0]}'); apply_hooks_plan(hooks_plan,dry_run); remove_path(manifest_path(codex_home),dry_run); remove_transaction(codex_home,dry_run)
 def main()->None:
-    parser=argparse.ArgumentParser(description='Install codex-redteam-optin-mode into a Codex Home or project.'); parser.add_argument('--codex-home', help='Codex Home/profile directory. AGENTS.md here is global guidance; use --project-home for project AGENTS.md.'); parser.add_argument('--agents-home', help='Skill installation destination. For a custom runtime directory, also use --enable-custom-skill-dirs.'); parser.add_argument('--project-home', help='Project root. Installs Codex files under PATH/.codex, skills under PATH/.agents by default, and AGENTS.md at PATH/AGENTS.md.'); parser.add_argument('--log-root', help='Durable operation root for SQLite state, events, and evidence artifacts.'); parser.add_argument('--model', help='Active model used to select the system-layer Jailbreak profile. Falls back to CODEX_MODEL, target config, previous manifest, then source config.'); parser.add_argument('--enable-custom-skill-dirs', action='store_true', help='Prioritize the manifest-recorded custom skill directory at runtime.'); parser.add_argument('--dry-run', action='store_true', help='Preview operations without writing files.'); parser.add_argument('--uninstall', action='store_true', help='Remove managed files, hooks, and AGENTS.md blocks.'); args=parser.parse_args()
+    parser=argparse.ArgumentParser(description='Install codex-redteam-optin-mode into a Codex Home or project.'); parser.add_argument('--codex-home', help='Codex Home/profile directory. AGENTS.md here is global guidance; use --project-home for project AGENTS.md.'); parser.add_argument('--agents-home', help='Skill installation destination. For a custom runtime directory, also use --enable-custom-skill-dirs.'); parser.add_argument('--project-home', help='Project root. Installs Codex files under PATH/.codex, skills under PATH/.agents by default, and AGENTS.md at PATH/AGENTS.md.'); parser.add_argument('--log-root', help='Durable operation root for SQLite state, events, and evidence artifacts.'); parser.add_argument('--model', help='Active model used to select the system-layer Jailbreak profile. Falls back to CODEX_MODEL, target config, previous manifest, then source config.'); parser.add_argument('--enable-rewrite-proxy', action='store_true', help='Route Codex App/CLI provider traffic through the local lossless rewrite proxy.'); parser.add_argument('--enable-custom-skill-dirs', action='store_true', help='Prioritize the manifest-recorded custom skill directory at runtime.'); parser.add_argument('--dry-run', action='store_true', help='Preview operations without writing files.'); parser.add_argument('--uninstall', action='store_true', help='Remove managed files, hooks, and AGENTS.md blocks.'); args=parser.parse_args()
     if args.project_home and args.codex_home: parser.error('--project-home cannot be combined with --codex-home')
     repo_root=Path(__file__).resolve().parents[1]; codex_home,agents_home,agents_file=resolve_install_paths(args.project_home,args.codex_home,args.agents_home)
     log_root=resolve_log_root(codex_home,args.log_root)
@@ -690,6 +700,44 @@ def main()->None:
         ('mcp_servers','codex-redteam-runtime','env','PYTHONPATH'):str(codex_home.resolve(strict=False)),
         ('mcp_servers','codex-redteam-runtime','env','CODEX_HOME'):str(codex_home.resolve(strict=False)),
     }
+    existing_config=_read_toml_document(codex_home/'config.toml'); source_config=_read_toml_document(repo_root/'config.toml')
+    def effective_config(path:list[str],default:object=None)->object:
+        current=_toml_value_at(existing_config,path)
+        if current is not _MISSING: return _toml_plain(current)
+        source=_toml_value_at(source_config,path)
+        return _toml_plain(source) if source is not _MISSING else default
+    configured_proxy_enabled=bool(effective_config(['redteam','rewrite_proxy','enabled'],False))
+    effective_provider=str(effective_config(['model_provider'],'') or '').strip()
+    proxy_requested=args.enable_rewrite_proxy or configured_proxy_enabled or effective_provider==REWRITE_PROXY_PROVIDER
+    if proxy_requested:
+        current_provider=effective_provider
+        upstream_provider=str(effective_config(['redteam','rewrite_proxy','upstream_provider'],'') or '').strip()
+        if current_provider and current_provider!=REWRITE_PROXY_PROVIDER: upstream_provider=current_provider
+        upstream_provider=upstream_provider or 'openai'
+        listen_host=str(effective_config(['redteam','rewrite_proxy','listen_host'],'127.0.0.1') or '127.0.0.1').strip()
+        listen_port=int(effective_config(['redteam','rewrite_proxy','listen_port'],8765) or 8765)
+        if listen_host not in {'127.0.0.1','::1','localhost'}: raise ValueError('rewrite proxy listen_host must be loopback')
+        if not 1 <= listen_port <= 65535: raise ValueError('rewrite proxy listen_port must be between 1 and 65535')
+        url_host=f'[{listen_host}]' if ':' in listen_host else listen_host
+        providers=_toml_value_at(existing_config,['model_providers',upstream_provider])
+        if providers is _MISSING: providers=_toml_value_at(source_config,['model_providers',upstream_provider])
+        upstream_wire='responses'; upstream_auth=True; upstream_env_key=''
+        if _toml_container(providers):
+            upstream_wire=str(_toml_plain(providers.get('wire_api')) or 'responses')
+            configured_auth=providers.get('requires_openai_auth')
+            upstream_auth=bool(_toml_plain(configured_auth)) if configured_auth is not None else True
+            upstream_env_key=str(_toml_plain(providers.get('env_key')) or '').strip()
+        forced_config_values.update({
+            ('model_provider',):REWRITE_PROXY_PROVIDER,
+            ('redteam','prompt_rewrite','mode'):'proxy',
+            ('redteam','rewrite_proxy','enabled'):True,
+            ('redteam','rewrite_proxy','upstream_provider'):upstream_provider,
+            ('model_providers',REWRITE_PROXY_PROVIDER,'base_url'):f'http://{url_host}:{listen_port}/v1',
+            ('model_providers',REWRITE_PROXY_PROVIDER,'wire_api'):upstream_wire,
+            ('model_providers',REWRITE_PROXY_PROVIDER,'requires_openai_auth'):upstream_auth,
+        })
+        if upstream_env_key:
+            forced_config_values[('model_providers',REWRITE_PROXY_PROVIDER,'env_key')]=upstream_env_key
     config_plan=prepare_config_merge(repo_root/'config.toml', codex_home/'config.toml',ownership_data.get('config_merge') if ownership_data else None,forced_config_values)
     hooks_plan=prepare_hooks_merge(repo_root,codex_home)
     pending_targets=transaction_targets(codex_home); previous_targets=_unique_cleanup_targets(load_manifest_targets(codex_home)+pending_targets)
@@ -705,7 +753,7 @@ def main()->None:
     try:
         apply_upgrade_cleanup(cleanup_targets,args.dry_run)
         if agents_file != codex_home/'AGENTS.md': remove_agents_block(codex_home/'AGENTS.md',args.dry_run)
-        write_system_instructions(codex_home/'redteam-mode'/'system-instructions.md',system_instructions,args.dry_run); copy_file(repo_root/'codex'/'launcher.py',codex_home/'redteam-mode'/'launcher.py',args.dry_run); write_launcher_scripts(codex_home,args.dry_run); info(f"merge {repo_root/'config.toml'} -> {codex_home/'config.toml'}"); apply_config_merge(config_plan,args.dry_run); seed_prompt_files(repo_root,codex_home,args.dry_run,legacy_prompts); upsert_agents_file(repo_root,agents_file,args.dry_run)
+        write_system_instructions(codex_home/'redteam-mode'/'system-instructions.md',system_instructions,args.dry_run); copy_file(repo_root/'codex'/'launcher.py',codex_home/'redteam-mode'/'launcher.py',args.dry_run); copy_file(repo_root/'codex'/'rewrite_proxy.py',codex_home/'redteam-mode'/'rewrite_proxy.py',args.dry_run); write_launcher_scripts(codex_home,args.dry_run); info(f"merge {repo_root/'config.toml'} -> {codex_home/'config.toml'}"); apply_config_merge(config_plan,args.dry_run); seed_prompt_files(repo_root,codex_home,args.dry_run,legacy_prompts); upsert_agents_file(repo_root,agents_file,args.dry_run)
         copy_file(repo_root/'codex'/'hooks'/'session-start-context.py', codex_home/'hooks'/'session-start-context.py', args.dry_run)
         copy_file(repo_root/'codex'/'hooks'/'hook-security-context-hook.py', codex_home/'hooks'/'hook-security-context-hook.py', args.dry_run)
         copy_file(repo_root/'codex'/'hooks'/'redteam_state.py', codex_home/'hooks'/'redteam_state.py', args.dry_run)

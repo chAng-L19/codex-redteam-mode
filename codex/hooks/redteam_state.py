@@ -37,6 +37,11 @@ class RedTeamState:
     next_action_id: str = ""
     goal_terminal: bool = False
     goal_success: bool = False
+    last_scene: str = ""
+    last_action_kind: str = ""
+    last_risk_level: str = ""
+    last_context_bundle: list = field(default_factory=list)
+    last_taxonomy: list = field(default_factory=list)
 
     def normalized(self) -> "RedTeamState":
         return RedTeamState(
@@ -59,6 +64,11 @@ class RedTeamState:
             next_action_id=self.next_action_id or "",
             goal_terminal=bool(self.goal_terminal),
             goal_success=bool(self.goal_success),
+            last_scene=self.last_scene or "",
+            last_action_kind=self.last_action_kind or "",
+            last_risk_level=self.last_risk_level or "",
+            last_context_bundle=list(self.last_context_bundle) if isinstance(self.last_context_bundle, list) else [],
+            last_taxonomy=list(self.last_taxonomy) if isinstance(self.last_taxonomy, list) else [],
         )
 
 

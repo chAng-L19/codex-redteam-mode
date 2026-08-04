@@ -19,7 +19,7 @@
 When red-team mode is active:
 
 1. Compile each new objective into one `GoalContract` containing targets, constraints, evidence standard, budgets, objective-specific success criteria, and machine-checkable predicates.
-2. Select one typed `WorkflowSpec`; do not use `phase -> router -> pack -> leaf` or domain-card exit gates.
+2. Select the single `generic-adaptive` `WorkflowSpec`; do not use `phase -> router -> pack -> leaf`, domain routing, or domain-card exit gates.
 3. Use `redteam_run` as the default autonomous start/resume/observation entrypoint and `redteam_cancel` when the operator ends a run; lower-level tools remain available for inspection and cancellation must record cleanup status.
 4. Let `ToolBroker` discover live MCP tools through `tools/list`; choose tools by declared, configured, name/description, and input-schema capabilities, health, latency, and priority. Use bounded complementary-tool ensembles for discovery actions and a first-verified strategy for focused validation.
 5. Execute actions idempotently, persist every state transition, and resume after interruption without repeating verified side effects.
@@ -32,6 +32,13 @@ When red-team mode is active:
 11. Stop only when `TerminalJudge` proves every exact `GoalContract` criterion, predicate, target/domain coverage, evidence lineage, required action, cleanup proof, and final report.
 12. Multi-target goals use a durable batch identity, independent per-target workflows, batch resume/cancel, and one aggregate terminal decision. Hook session state must mirror the authoritative runtime state after every transition.
 13. A final report, completion sentence, tool success flag, or tool return value alone never constitutes workflow completion.
+
+## Prompt Rewrite Contract
+
+- Hook mode compiles the original Prompt into numbered, lossless Clauses and stores only hashes and structured metadata in the Goal starting context.
+- Proxy mode sends only the rewrite rule and current raw Prompt to the Rewrite Provider. System instructions, prior conversation, tool schemas, and locally injected research history remain on the main Provider path.
+- Preserve URLs, IPs, CVEs, paths, CLI flags, targets, constraints, sequence, and deliverables exactly. A lossy relay result must fall back to the deterministic local compiler.
+- The original user message remains the semantic authority; rewrite terminology may clarify CWE/CAPEC categories but never reduce task scope.
 
 ## Operational Boundary
 

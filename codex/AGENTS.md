@@ -14,6 +14,8 @@ This `AGENTS.md` remains as a compatibility layer for installs or environments t
 - when red-team mode is enabled, use `GoalContract -> WorkflowSpec -> ToolBroker -> EvidenceGraph -> TerminalJudge`
 - keep hooks lightweight
 - keep context compact
+- preserve every Prompt Rewrite Clause, concrete anchor, constraint, and deliverable
+- keep rewrite-relay input isolated to the rewrite rule and current raw Prompt
 - keep the single boundary card outside workflow routing and terminal gates
 - consume verified artifact payloads and lineage references directly
 - resume durable pending actions without user copy/paste

@@ -6,11 +6,35 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [2.1.0] - 2026-08-04
+
+### Added
+
+- Added a loopback OpenAI-compatible Rewrite Proxy for Codex App and CLI, with Responses and Chat Completions support, inherited or dedicated rewrite Providers, local four-message research-history injection, health checks, and cross-platform launchers.
+- Added lossless Prompt Rewrite metadata with Clause tracking, original Prompt hashing, action-first intent, ordinary-development disambiguation, taxonomy, risk level, validation context, and requested deliverables.
+- Added relay-isolation and fallback tests proving that the rewrite Provider receives only the rewrite rule and current raw Prompt, while system instructions, conversation history, tool schemas, and local research context remain on the main Provider path.
+
+### Changed
+
+- Consolidated eight domain workflows into the single versioned `generic-adaptive` workflow; ToolBroker capability discovery and evidence-linked hypothesis expansion now provide domain adaptation without a routing layer.
+- Removed static tool-priority and domain-count configuration. Tool selection now relies on live capability, schema, health, latency, and verified fallback signals.
+- Increased the default autonomous action budget from 16 to 64 while retaining per-action retry, timeout, evidence, rollback, and terminal controls.
+
+### Fixed
+
+- Fixed follow-up, verification, and summary turns so they resume the durable run rather than creating a new operation.
+- Added anchor and Clause checks that reject lossy relay rewrites and fall back to the deterministic local compiler.
+- Gated red-team rewrite/history injection on explicit Hook red-team context; normal-mode Provider requests now pass through unchanged.
+- Added short follow-up inheritance and semantic checks that prevent a high-risk generation action from being silently rewritten as analysis.
+- Added installer ownership and uninstall rollback for Rewrite Proxy provider changes.
+- Preserved low-latency streaming by preferring incremental upstream reads instead of waiting for a full 64 KiB buffer.
+- Removed the last legacy routing phrase from the installed `UserPromptSubmit` status message.
+
 ## [2.0.0] - 2026-07-18
 
 ### Added
 
-- Added the unified `GoalContract -> WorkflowSpec -> ToolBroker -> EvidenceGraph -> TerminalJudge` runtime with eight typed workflows and one non-routing boundary skill.
+- Added the unified `GoalContract -> WorkflowSpec -> ToolBroker -> EvidenceGraph -> TerminalJudge` runtime with a durable workflow registry and one non-routing boundary skill.
 - Added SQLite WAL persistence, schema metadata, append-only cursor-paginated events, operation/action leases, deterministic idempotency keys, and workflow fingerprint binding.
 - Added live stdio and Streamable HTTP MCP discovery, JSON/SSE handling, session IDs, pagination, schema-required argument checks, retries, and verified host-agent observation handoff.
 - Added `redteam_cancel` with cleanup execution and a persisted cleanup outcome, plus `waiting_goal_input` for incomplete goals.
@@ -236,6 +260,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Managed incremental installer for Python and PowerShell.
 - Reference method layer and technology routing layer from three external skill repositories.
 
+[2.1.0]: https://github.com/chAng-L19/codex-redteam-mode/releases/tag/v2.1.0
 [2.0.0]: https://github.com/chAng-L19/codex-redteam-mode/releases/tag/v2.0.0
 [1.3.0]: https://github.com/chAng-L19/codex-redteam-mode/releases/tag/v1.3.0
 [1.2.0]: https://github.com/chAng-L19/codex-redteam-mode/releases/tag/v1.2.0
